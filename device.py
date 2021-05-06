@@ -1,4 +1,5 @@
 import logging
+from typing import Optional, Tuple
 from .const import (
     STATE_OFF,
     STATE_IDLE,
@@ -9,10 +10,11 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 class JellyfinDevice(object):
-    """ Represents properties of an Emby Device. """
-    def __init__(self, session, server):
+    """ Represents properties of an Jellyfin Device. """
+
+    def __init__(self, session, jf_manager):
         """Initialize Emby device object."""
-        self.server = server
+        self.jf_manager = jf_manager
         self.is_active = True
         self.update_data(session)
 
@@ -159,7 +161,7 @@ class JellyfinDevice(object):
                     image_type = 'Primary'
                 except KeyError:
                     return None
-            url = self.server.api.artwork(self.media_id, image_type, 500)
+            url = self.jf_manager.api.artwork(self.media_id, image_type, 500)
             return url
         else:
             return None
@@ -216,15 +218,26 @@ class JellyfinDevice(object):
         """ Return remote control status. """
         return self.session['SupportsRemoteControl']
 
+    async def get_item(self, id):
+        return await self.jf_manager.get_item(id)
+
+    async def get_items(self, query=None):
+        return await self.jf_manager.get_items(query)
+
+    async def get_artwork(self, media_id) -> Tuple[Optional[str], Optional[str]]:
+        return await self.jf_manager.get_artwork(media_id)
+
+    async def get_artwork_url(self, media_id) -> str:
+        return await self.jf_manager.get_artwork_url(media_id)
+
     async def set_playstate(self, state, pos=0):
         """ Send media commands to server. """
-
         params = {}
         if state == 'Seek':
             params['SeekPositionTicks'] = int(pos * 10000000)
             params['static'] = 'true'
 
-        await self.server.set_playstate(self.session_id, state, params)
+        await self.jf_manager.set_playstate(self.session_id, state, params)
 
     def media_play(self):
         """ Send play command to device. """
@@ -249,3 +262,6 @@ class JellyfinDevice(object):
     def media_seek(self, position):
         """ Send seek command to device. """
         return self.set_playstate('Seek', position)
+
+    async def play_media(self, media_id):
+        await self.jf_manager.play_media(self.session_id, media_id)

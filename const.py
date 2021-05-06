@@ -2,6 +2,7 @@
 
 DOMAIN = "jellyfin"
 SIGNAL_STATE_UPDATED = "{}.updated".format(DOMAIN)
+SERVICE_SCAN = "trigger_scan"
 
 DEFAULT_SSL = False
 DEFAULT_VERIFY_SSL = True

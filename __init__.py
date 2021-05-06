@@ -4,7 +4,9 @@ import time
 import re
 import traceback
 import collections.abc
-from typing import Mapping, MutableMapping, Sequence, Iterable, List
+from typing import Mapping, MutableMapping, Optional, Sequence, Iterable, List, Tuple
+
+import voluptuous as vol
 
 from homeassistant.exceptions import ConfigEntryNotReady
 from jellyfin_apiclient_python import JellyfinClient
@@ -13,14 +15,13 @@ from jellyfin_apiclient_python.connection_manager import CONNECTION_STATE
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (  # pylint: disable=import-error
-    CONF_HOST,
-    CONF_PORT,
-    CONF_SSL,
+    ATTR_ENTITY_ID,
     CONF_URL,
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_VERIFY_SSL,
     CONF_CLIENT_ID,
+    EVENT_HOMEASSISTANT_STOP,
 )
 import homeassistant.helpers.config_validation as cv  # pylint: disable=import-error
 
@@ -31,6 +32,7 @@ from homeassistant.helpers.dispatcher import (  # pylint: disable=import-error
 from .const import (
     DOMAIN,
     SIGNAL_STATE_UPDATED,
+    SERVICE_SCAN,
     STATE_OFF,
     STATE_IDLE,
     STATE_PAUSED,
@@ -40,12 +42,18 @@ from .device import JellyfinDevice
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ["media_player"]
+PLATFORMS = ["sensor", "media_player"]
 UPDATE_UNLISTENER = None
 
 USER_APP_NAME = "Home Assistant"
 CLIENT_VERSION = "1.0"
 PATH_REGEX = re.compile("^(https?://)?([^/:]+)(:[0-9]+)?(/.*)?$")
+
+SCAN_SERVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+    }
+)
 
 def autolog(message):
     "Automatically log the current function details."
@@ -88,20 +96,44 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     UPDATE_UNLISTENER = config_entry.add_update_listener(_update_listener)
 
+    hass.data[DOMAIN][config.get(CONF_URL)] = {}
     _jelly = JellyfinClientManager(hass, config)
     try:
         await _jelly.connect()
-        hass.data[DOMAIN][config.get(CONF_HOST)] = _jelly
+        hass.data[DOMAIN][config.get(CONF_URL)]["manager"] = _jelly
     except:
         _LOGGER.error("Cannot connect to Jellyfin server.")
         raise
 
+    async def service_trigger_scan(service):
+        entity_id = service.data.get(ATTR_ENTITY_ID)
+
+        for sensor in hass.data[DOMAIN][config.get(CONF_URL)]["sensor"]["entities"]:
+            if sensor.entity_id == entity_id:
+                await sensor.async_trigger_scan()
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SCAN,
+        service_trigger_scan,
+        schema=SCAN_SERVICE_SCHEMA,
+    )
+
     for component in PLATFORMS:
+        hass.data[DOMAIN][config.get(CONF_URL)][component] = {}
         hass.async_create_task(
             hass.config_entries.async_forward_entry_setup(config_entry, component)
         )
 
     async_dispatcher_send(hass, SIGNAL_STATE_UPDATED)
+
+    async def stop_jellyfin(event):
+        """Stop Jellyfin connection."""
+        await _jelly.stop()
+
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_jellyfin)
+    
+    await _jelly.start()
 
     return True
 
@@ -115,9 +147,13 @@ class JellyfinClientManager(object):
     def __init__(self, hass: HomeAssistant, config_entry):
         self.hass = hass
         self.callback = lambda client, event_name, data: None
-        self.client: JellyfinClient = None
+        self.jf_client: JellyfinClient = None
         self.is_stopping = True
         self._event_loop = hass.loop
+        
+        self.host = config_entry[CONF_URL]
+        self._info = None
+
         self.config_entry = config_entry
         self.server_url = ""
 
@@ -227,14 +263,14 @@ class JellyfinClientManager(object):
 
         self.server_url = "".join(filter(bool, (protocol, host, port, path)))
 
-        self.client = self.client_factory(self.config_entry)
-        self.client.auth.connect_to_address(self.server_url)
-        result = self.client.auth.login(self.server_url, self.config_entry[CONF_USERNAME], self.config_entry[CONF_PASSWORD])
+        self.jf_client = self.client_factory(self.config_entry)
+        self.jf_client.auth.connect_to_address(self.server_url)
+        result = self.jf_client.auth.login(self.server_url, self.config_entry[CONF_USERNAME], self.config_entry[CONF_PASSWORD])
         if "AccessToken" not in result:
             return False
 
-        credentials = self.client.auth.credentials.get_credentials()
-        self.client.authenticate(credentials)
+        credentials = self.jf_client.auth.credentials.get_credentials()
+        self.jf_client.authenticate(credentials)
         return True
 
     async def start(self):
@@ -243,7 +279,7 @@ class JellyfinClientManager(object):
         def event(event_name, data):
             _LOGGER.debug("Event: %s", event_name)
             if event_name == "WebSocketConnect":
-                self.client.wsc.send("SessionsStart", "0,1500")
+                self.jf_client.wsc.send("SessionsStart", "0,1500")
             elif event_name == "WebSocketDisconnect":
                 timeout_gen = self.expo(100)
                 while not self.is_stopping:
@@ -253,37 +289,36 @@ class JellyfinClientManager(object):
                             timeout
                         )
                     )
-                    self.client.stop()
+                    self.jf_client.stop()
                     time.sleep(timeout)
                     if self.login():
                         break
             elif event_name == "Sessions":
                 self._sessions = self.clean_none_dict_values(data)["value"]
-                self.update_device_list(self._sessions)
+                self.update_device_list()
             else:
-                self.callback(self.client, event_name, data)
+                self.callback(self.jf_client, event_name, data)
 
-        self.client.callback = event
-        self.client.callback_ws = event
+        self.jf_client.callback = event
+        self.jf_client.callback_ws = event
 
-        await self.hass.async_add_executor_job(self.client.start, True)
-
+        await self.hass.async_add_executor_job(self.jf_client.start, True)
         self.is_stopping = False
 
-        self._sessions = self.clean_none_dict_values(await self.hass.async_add_executor_job(self.client.jellyfin.get_sessions))
-        self.update_device_list(self._sessions)
+        self._info = await self.hass.async_add_executor_job(self.jf_client.jellyfin._get, "System/Info")
+        self._sessions = self.clean_none_dict_values(await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_sessions))
 
     async def stop(self):
         autolog(">>>")
 
-        await self.hass.async_add_executor_job(self.client.stop)
+        await self.hass.async_add_executor_job(self.jf_client.stop)
         self.is_stopping = True
 
-    def update_device_list(self, sessions):
+    def update_device_list(self):
         """ Update device list. """
         autolog(">>>")
-        _LOGGER.debug("sessions: %s", str(sessions))
-        if sessions is None:
+        # _LOGGER.debug("sessions: %s", str(sessions))
+        if self._sessions is None:
             _LOGGER.error('Error updating Jellyfin devices.')
             return
 
@@ -291,8 +326,8 @@ class JellyfinClientManager(object):
             new_devices = []
             active_devices = []
             dev_update = False
-            for device in sessions:
-                _LOGGER.debug("device: %s", str(device))
+            for device in self._sessions:
+                # _LOGGER.debug("device: %s", str(device))
                 dev_name = '{}.{}'.format(device['DeviceId'], device['Client'])
 
                 try:
@@ -385,18 +420,62 @@ class JellyfinClientManager(object):
         else:
             return False
 
+    @property
+    def info(self):
+        if self.is_stopping:
+            return None
+
+        return self._info
+        
+    async def trigger_scan(self):
+        await self.hass.async_add_executor_job(self.jf_client.jellyfin._post, "Library/Refresh")
+
+    async def get_item(self, id):
+        return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_item, id)
+
+    async def get_items(self, query=None):
+        response = await self.hass.async_add_executor_job(self.jf_client.jellyfin.users, "/Items", "GET", query)
+        #_LOGGER.debug("get_items: %s | %s", str(query), str(response))
+        return response["Items"]
+
     async def set_playstate(self, session_id, state, params):
-        await self.hass.async_add_executor_job(self.client.jellyfin.post_session, session_id, "Playing/%s" % state,  params)
+        await self.hass.async_add_executor_job(self.jf_client.jellyfin.post_session, session_id, "Playing/%s" % state,  params)
+
+    async def play_media(self, session_id, media_id):
+        params = {
+            "playCommand": "PlayNow",
+            "itemIds": media_id
+        }
+        await self.hass.async_add_executor_job(self.jf_client.jellyfin.post_session, session_id, "Playing", params)
+
+    async def get_artwork(self, media_id) -> Tuple[Optional[str], Optional[str]]:
+        query = {
+            "format": "PNG",
+            "maxWidth": 500,
+            "maxHeight": 500
+        }
+        image = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "GET", "%s/Images/Primary" % media_id, query)
+        if image is not None:
+            return (image, "image/png")
+
+        return (None, None)
+
+    async def get_artwork_url(self, media_id) -> str:
+        return await self.hass.async_add_executor_job(self.jf_client.jellyfin.artwork, media_id, "Primary", 500)
 
     @property
     def api(self):
         """ Return the api. """
-        return self.client.jellyfin
+        return self.jf_client.jellyfin
 
     @property
     def devices(self) -> Mapping[str, JellyfinDevice]:
         """ Return devices dictionary. """
         return self._devices
+
+    @property
+    def is_available(self):
+        return not self.is_stopping
 
     # Callbacks
 

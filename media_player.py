@@ -1,10 +1,6 @@
 """Support to interface with the Jellyfin API."""
 import logging
-from typing import Mapping, MutableMapping, Sequence, Iterable, List
-
-from jellyfin_apiclient_python import JellyfinClient
-from jellyfin_apiclient_python.connection_manager import CONNECTION_STATE
-import voluptuous as vol
+from typing import Mapping, MutableMapping, Optional, Sequence, Iterable, List, Tuple, Union
 
 from homeassistant.components.media_player import PLATFORM_SCHEMA, MediaPlayerEntity
 from homeassistant.components.media_player.const import (
@@ -12,18 +8,17 @@ from homeassistant.components.media_player.const import (
     MEDIA_TYPE_MOVIE,
     MEDIA_TYPE_MUSIC,
     MEDIA_TYPE_TVSHOW,
+    SUPPORT_PLAY_MEDIA,
     SUPPORT_NEXT_TRACK,
     SUPPORT_PAUSE,
     SUPPORT_PLAY,
     SUPPORT_PREVIOUS_TRACK,
     SUPPORT_SEEK,
     SUPPORT_STOP,
+    SUPPORT_BROWSE_MEDIA,
 )
 from homeassistant.const import (
-    CONF_API_KEY,
-    CONF_HOST,
-    CONF_PORT,
-    CONF_SSL,
+    CONF_URL,
     DEVICE_DEFAULT_NAME,
     EVENT_HOMEASSISTANT_START,
     EVENT_HOMEASSISTANT_STOP,
@@ -33,15 +28,16 @@ from homeassistant.const import (
     STATE_PLAYING,
 )
 from homeassistant.core import HomeAssistant, callback
-import homeassistant.helpers.config_validation as cv
 import homeassistant.util.dt as dt_util
 
-from . import JellyfinClientManager
+from . import JellyfinClientManager, autolog
+from .media_browser import library_items
 
 from .const import (
     DOMAIN,
     SIGNAL_STATE_UPDATED,
 )
+PLATFORM = "media_player"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,8 +49,10 @@ DEFAULT_PORT = 8096
 DEFAULT_SSL_PORT = 8920
 DEFAULT_SSL = False
 
-SUPPORT_EMBY = (
-    SUPPORT_PAUSE
+SUPPORT_JELLYFIN = (
+    SUPPORT_BROWSE_MEDIA
+    | SUPPORT_PLAY_MEDIA
+    | SUPPORT_PAUSE
     | SUPPORT_PREVIOUS_TRACK
     | SUPPORT_NEXT_TRACK
     | SUPPORT_STOP
@@ -62,22 +60,15 @@ SUPPORT_EMBY = (
     | SUPPORT_PLAY
 )
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_API_KEY): cv.string,
-        vol.Optional(CONF_HOST, default=DEFAULT_HOST): cv.string,
-        vol.Optional(CONF_PORT): cv.port,
-        vol.Optional(CONF_SSL, default=DEFAULT_SSL): cv.boolean,
-    }
-)
 
 async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entities):
-    """Set up switches dynamically."""
-
+    """Set up media players dynamically."""
+  
     active_jellyfin_devices: List[JellyfinMediaPlayer] = {}
     inactive_jellyfin_devices: List[JellyfinMediaPlayer] = {}
 
-    _jelly: JellyfinClientManager = hass.data[DOMAIN][config_entry.data.get(CONF_HOST)]
+    _jelly: JellyfinClientManager = hass.data[DOMAIN][config_entry.data.get(CONF_URL)]["manager"]
+    hass.data[DOMAIN][_jelly.host][PLATFORM]["entities"] = []
 
     @callback
     def device_update_callback(data):
@@ -115,25 +106,19 @@ async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entitie
             _LOGGER.debug("Inactive %s, item: %s", data, rem)
             rem.set_available(False)
 
-    async def stop_jellyfin(event):
-        """Stop Jellyfin connection."""
-        await _jelly.stop()
-
     _jelly.add_new_devices_callback(device_update_callback)
     _jelly.add_stale_devices_callback(device_removal_callback)
-    await _jelly.start()
-    
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_jellyfin)
+    _jelly.update_device_list()
 
 class JellyfinMediaPlayer(MediaPlayerEntity):
     """Representation of an Jellyfin device."""
 
-    def __init__(self, jellyfin: JellyfinClientManager, device_id):
+    def __init__(self, jelly_cm: JellyfinClientManager, device_id):
         """Initialize the Jellyfin device."""
         _LOGGER.debug("New Jellyfin Device initialized with ID: %s", device_id)
-        self.jellyfin = jellyfin
+        self.jelly_cm = jelly_cm
         self.device_id = device_id
-        self.device = self.jellyfin.devices[self.device_id]
+        self.device = self.jelly_cm.devices[self.device_id]
 
         self._available = True
 
@@ -141,8 +126,12 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
         self.media_status_received = None
 
     async def async_added_to_hass(self):
-        """Register callback."""
-        self.jellyfin.add_update_callback(self.async_update_callback, self.device_id)
+        self.hass.data[DOMAIN][self.jelly_cm.host][PLATFORM]["entities"].append(self)
+        self.jelly_cm.add_update_callback(self.async_update_callback, self.device_id)
+
+    async def async_will_remove_from_hass(self):
+        self.hass.data[DOMAIN][self.jelly_cm.host][PLATFORM]["entities"].remove(self)
+        self.jelly_cm.remove_update_callback(self.async_update_callback, self.device_id)
 
     @callback
     def async_update_callback(self, msg):
@@ -158,6 +147,28 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
             self.media_status_received = None
 
         self.async_write_ha_state()
+
+    async def async_get_browse_image(
+        self,
+        media_content_type: str,
+        media_content_id: str,
+        media_image_id: Optional[str] = None,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """
+        fetch internally accessible image for media browser.
+        """
+        autolog("<<<")
+
+        if media_content_id:
+            return self.device.get_artwork(media_content_id)
+
+        return (None, None)
+
+    async def async_browse_media(self, media_content_type=None, media_content_id=None):
+        """Implement the media source."""
+        _LOGGER.debug("-- async_browse_media: %s / %s", media_content_type, media_content_id)
+        return await library_items(self.device, media_content_type, media_content_id)
+
 
     @property
     def available(self):
@@ -295,7 +306,7 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
     def supported_features(self):
         """Flag media player features that are supported."""
         if self.supports_remote_control:
-            return SUPPORT_EMBY
+            return SUPPORT_JELLYFIN
         return 0
 
     async def async_media_play(self):
@@ -321,3 +332,7 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
     async def async_media_seek(self, position):
         """Send seek command."""
         await self.device.media_seek(position)
+
+    async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
+        _LOGGER.debug("Play media requested: %s / %s", media_type, media_id)
+        await self.device.play_media(media_id)

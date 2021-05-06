@@ -1,0 +1,14 @@
+trigger_scan:
+  # Description of the service
+  name: Trigger library scan
+  description: "Trigger a scan on Jellyfin"
+  fields:
+    entity_id:
+      name: Entity
+      description: Name of entity to send command.
+      required: true
+      example: "media_player.jellyfin_firefox"
+      selector:
+        entity:
+          integration: jellyfin
+          domain: sensor
