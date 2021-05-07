@@ -31,7 +31,7 @@ from homeassistant.core import HomeAssistant, callback
 import homeassistant.util.dt as dt_util
 
 from . import JellyfinClientManager, autolog
-from .media_browser import library_items
+from .media_source import async_library_items
 
 from .const import (
     DOMAIN,
@@ -167,7 +167,7 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
     async def async_browse_media(self, media_content_type=None, media_content_id=None):
         """Implement the media source."""
         _LOGGER.debug("-- async_browse_media: %s / %s", media_content_type, media_content_id)
-        return await library_items(self.device, media_content_type, media_content_id)
+        return await async_library_items(self.jelly_cm, media_content_type, media_content_id)
 
 
     @property

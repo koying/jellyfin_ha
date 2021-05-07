@@ -31,6 +31,8 @@ from homeassistant.helpers.dispatcher import (  # pylint: disable=import-error
 
 from .const import (
     DOMAIN,
+    USER_APP_NAME,
+    CLIENT_VERSION,
     SIGNAL_STATE_UPDATED,
     SERVICE_SCAN,
     STATE_OFF,
@@ -38,15 +40,12 @@ from .const import (
     STATE_PAUSED,
     STATE_PLAYING,
 )
-from .device import JellyfinDevice
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "media_player"]
 UPDATE_UNLISTENER = None
 
-USER_APP_NAME = "Home Assistant"
-CLIENT_VERSION = "1.0"
 PATH_REGEX = re.compile("^(https?://)?([^/:]+)(:[0-9]+)?(/.*)?$")
 
 SCAN_SERVICE_SCHEMA = vol.Schema(
@@ -142,6 +141,263 @@ async def _update_listener(hass, config_entry):
     """Update listener."""
     await hass.config_entries.async_reload(config_entry.entry_id)
 
+
+class JellyfinDevice(object):
+    """ Represents properties of an Jellyfin Device. """
+
+    def __init__(self, session, jf_manager):
+        """Initialize Emby device object."""
+        self.jf_manager = jf_manager
+        self.is_active = True
+        self.update_data(session)
+
+    def update_data(self, session):
+        """ Update session object. """
+        self.session = session
+
+    def set_active(self, active):
+        """ Mark device as on/off. """
+        self.is_active = active
+
+    @property
+    def session_raw(self):
+        """ Return raw session data. """
+        return self.session
+
+    @property
+    def session_id(self):
+        """ Return current session Id. """
+        try:
+            return self.session['Id']
+        except KeyError:
+            return None
+
+    @property
+    def unique_id(self):
+        """ Return device id."""
+        try:
+            return self.session['DeviceId']
+        except KeyError:
+            return None
+
+    @property
+    def name(self):
+        """ Return device name."""
+        try:
+            return self.session['DeviceName']
+        except KeyError:
+            return None
+
+    @property
+    def client(self):
+        """ Return client name. """
+        try:
+            return self.session['Client']
+        except KeyError:
+            return None
+
+    @property
+    def username(self):
+        """ Return device name."""
+        try:
+            return self.session['UserName']
+        except KeyError:
+            return None
+
+    @property
+    def media_title(self):
+        """ Return title currently playing."""
+        try:
+            return self.session['NowPlayingItem']['Name']
+        except KeyError:
+            return None
+
+    @property
+    def media_season(self):
+        """Season of curent playing media (TV Show only)."""
+        try:
+            return self.session['NowPlayingItem']['ParentIndexNumber']
+        except KeyError:
+            return None
+
+    @property
+    def media_series_title(self):
+        """The title of the series of current playing media (TV Show only)."""
+        try:
+            return self.session['NowPlayingItem']['SeriesName']
+        except KeyError:
+            return None
+
+    @property
+    def media_episode(self):
+        """Episode of current playing media (TV Show only)."""
+        try:
+            return self.session['NowPlayingItem']['IndexNumber']
+        except KeyError:
+            return None
+
+    @property
+    def media_album_name(self):
+        """Album name of current playing media (Music track only)."""
+        try:
+            return self.session['NowPlayingItem']['Album']
+        except KeyError:
+            return None
+
+    @property
+    def media_artist(self):
+        """Artist of current playing media (Music track only)."""
+        try:
+            artists = self.session['NowPlayingItem']['Artists']
+            if len(artists) > 1:
+                return artists[0]
+            else:
+                return artists
+        except KeyError:
+            return None
+
+    @property
+    def media_album_artist(self):
+        """Album artist of current playing media (Music track only)."""
+        try:
+            return self.session['NowPlayingItem']['AlbumArtist']
+        except KeyError:
+            return None
+
+    @property
+    def media_id(self):
+        """ Return title currently playing."""
+        try:
+            return self.session['NowPlayingItem']['Id']
+        except KeyError:
+            return None
+
+    @property
+    def media_type(self):
+        """ Return type currently playing."""
+        try:
+            return self.session['NowPlayingItem']['Type']
+        except KeyError:
+            return None
+
+    @property
+    def media_image_url(self):
+        """Image url of current playing media."""
+        if self.is_nowplaying:
+            try:
+                image_id = self.session['NowPlayingItem']['ImageTags']['Thumb']
+                image_type = 'Thumb'
+            except KeyError:
+                try:
+                    image_id = self.session[
+                        'NowPlayingItem']['ImageTags']['Primary']
+                    image_type = 'Primary'
+                except KeyError:
+                    return None
+            url = self.jf_manager.api.artwork(self.media_id, image_type, 500)
+            return url
+        else:
+            return None
+
+    @property
+    def media_position(self):
+        """ Return position currently playing."""
+        try:
+            return int(self.session['PlayState']['PositionTicks']) / 10000000
+        except KeyError:
+            return None
+
+    @property
+    def media_runtime(self):
+        """ Return total runtime length."""
+        try:
+            return int(
+                self.session['NowPlayingItem']['RunTimeTicks']) / 10000000
+        except KeyError:
+            return None
+
+    @property
+    def media_percent_played(self):
+        """ Return media percent played. """
+        try:
+            return (self.media_position / self.media_runtime) * 100
+        except TypeError:
+            return None
+
+    @property
+    def state(self):
+        """ Return current playstate of the device. """
+        if self.is_active:
+            if 'NowPlayingItem' in self.session:
+                if self.session['PlayState']['IsPaused']:
+                    return STATE_PAUSED
+                else:
+                    return STATE_PLAYING
+            else:
+                return STATE_IDLE
+        else:
+            return STATE_OFF
+
+    @property
+    def is_nowplaying(self):
+        """ Return true if an item is currently active. """
+        if self.state == 'Idle' or self.state == 'Off':
+            return False
+        else:
+            return True
+
+    @property
+    def supports_remote_control(self):
+        """ Return remote control status. """
+        return self.session['SupportsRemoteControl']
+
+    async def get_item(self, id):
+        return await self.jf_manager.get_item(id)
+
+    async def get_items(self, query=None):
+        return await self.jf_manager.get_items(query)
+
+    async def get_artwork(self, media_id) -> Tuple[Optional[str], Optional[str]]:
+        return await self.jf_manager.get_artwork(media_id)
+
+    async def get_artwork_url(self, media_id) -> str:
+        return await self.jf_manager.get_artwork_url(media_id)
+
+    async def set_playstate(self, state, pos=0):
+        """ Send media commands to server. """
+        params = {}
+        if state == 'Seek':
+            params['SeekPositionTicks'] = int(pos * 10000000)
+            params['static'] = 'true'
+
+        await self.jf_manager.set_playstate(self.session_id, state, params)
+
+    def media_play(self):
+        """ Send play command to device. """
+        return self.set_playstate('Unpause')
+
+    def media_pause(self):
+        """ Send pause command to device. """
+        return self.set_playstate('Pause')
+
+    def media_stop(self):
+        """ Send stop command to device. """
+        return self.set_playstate('Stop')
+
+    def media_next(self):
+        """ Send next track command to device. """
+        return self.set_playstate('NextTrack')
+
+    def media_previous(self):
+        """ Send previous track command to device. """
+        return self.set_playstate('PreviousTrack')
+
+    def media_seek(self, position):
+        """ Send seek command to device. """
+        return self.set_playstate('Seek', position)
+
+    async def play_media(self, media_id):
+        await self.jf_manager.play_media(self.session_id, media_id)
 
 class JellyfinClientManager(object):
     def __init__(self, hass: HomeAssistant, config_entry):
@@ -430,6 +686,9 @@ class JellyfinClientManager(object):
     async def trigger_scan(self):
         await self.hass.async_add_executor_job(self.jf_client.jellyfin._post, "Library/Refresh")
 
+    def get_server_url(self) -> str:
+        return self.jf_client.config.data["auth.server"]
+
     async def get_item(self, id):
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_item, id)
 
@@ -459,6 +718,9 @@ class JellyfinClientManager(object):
             return (image, "image/png")
 
         return (None, None)
+
+    async def get_play_info(self, media_id, profile):
+        return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_play_info, media_id, profile)
 
     async def get_artwork_url(self, media_id) -> str:
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.artwork, media_id, "Primary", 500)
@@ -520,5 +782,3 @@ class JellyfinClientManager(object):
                 _LOGGER.debug('Update callback %s for device %s by %s',
                               callback, device, msg)
                 self._event_loop.call_soon(callback, msg)
-
-
