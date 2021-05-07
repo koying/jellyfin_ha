@@ -1,12 +1,12 @@
 {
     "config": {
         "abort": {
-            "already_configured": "Service is already configured",
-            "conn_error": "Unable to connect."
+            "already_configured": "Le serveur est déjà configuré",
+            "conn_error": "Impossible de se connecter."
         },
         "error": {
-            "cannot_connect": "Unable to connect",
-            "unknown": "Unknown Error"
+            "cannot_connect": "Impossible de se connecter",
+            "unknown": "Erreur inconnue"
         },
         "flow_title": "Jellyfin Configuration",
         "step": {
