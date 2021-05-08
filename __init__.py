@@ -689,6 +689,9 @@ class JellyfinClientManager(object):
     def get_server_url(self) -> str:
         return self.jf_client.config.data["auth.server"]
 
+    def get_auth_token(self) -> str:
+        return self.jf_client.config.data["auth.token"]
+
     async def get_item(self, id):
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_item, id)
 
