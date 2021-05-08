@@ -4,10 +4,13 @@ import time
 import re
 import traceback
 import collections.abc
+from datetime import datetime, timedelta
+import dateutil.parser as dt
 from typing import Mapping, MutableMapping, Optional, Sequence, Iterable, List, Tuple
 
 import voluptuous as vol
 
+from homeassistant import util
 from homeassistant.exceptions import ConfigEntryNotReady
 from jellyfin_apiclient_python import JellyfinClient
 from jellyfin_apiclient_python.connection_manager import CONNECTION_STATE
@@ -45,6 +48,7 @@ _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = ["sensor", "media_player"]
 UPDATE_UNLISTENER = None
+MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=30)
 
 PATH_REGEX = re.compile("^(https?://)?([^/:]+)(:[0-9]+)?(/.*)?$")
 
@@ -149,9 +153,9 @@ class JellyfinDevice(object):
         """Initialize Emby device object."""
         self.jf_manager = jf_manager
         self.is_active = True
-        self.update_data(session)
+        self.update_session(session)
 
-    def update_data(self, session):
+    def update_session(self, session):
         """ Update session object. """
         self.session = session
 
@@ -360,8 +364,8 @@ class JellyfinDevice(object):
     async def get_artwork(self, media_id) -> Tuple[Optional[str], Optional[str]]:
         return await self.jf_manager.get_artwork(media_id)
 
-    async def get_artwork_url(self, media_id) -> str:
-        return await self.jf_manager.get_artwork_url(media_id)
+    def get_artwork_url(self, media_id, type="Primary") -> str:
+        return self.jf_manager.get_artwork_url(media_id, type)
 
     async def set_playstate(self, state, pos=0):
         """ Send media commands to server. """
@@ -409,6 +413,7 @@ class JellyfinClientManager(object):
         
         self.host = config_entry[CONF_URL]
         self._info = None
+        self._data = None
 
         self.config_entry = config_entry
         self.server_url = ""
@@ -549,6 +554,10 @@ class JellyfinClientManager(object):
                     time.sleep(timeout)
                     if self.login():
                         break
+            elif event_name in ("LibraryChanged", "UserDataChanged"):
+                self.update_data()
+                for sensor in self.hass.data[DOMAIN][self.host]["sensor"]["entities"]:
+                    sensor.schedule_update_ha_state()
             elif event_name == "Sessions":
                 self._sessions = self.clean_none_dict_values(data)["value"]
                 self.update_device_list()
@@ -563,12 +572,22 @@ class JellyfinClientManager(object):
 
         self._info = await self.hass.async_add_executor_job(self.jf_client.jellyfin._get, "System/Info")
         self._sessions = self.clean_none_dict_values(await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_sessions))
+        await self.update_data()
 
     async def stop(self):
         autolog(">>>")
 
         await self.hass.async_add_executor_job(self.jf_client.stop)
         self.is_stopping = True
+
+    @util.Throttle(MIN_TIME_BETWEEN_UPDATES)
+    async def update_data(self):
+        self._data = await self.hass.async_add_executor_job(self.jf_client.jellyfin.shows, "/NextUp", {
+            'Limit': 10,
+            'UserId': "{UserId}",
+            "fields": "DateCreated,Studios,Genres"
+        })
+        _LOGGER.debug("update_data: %s", str(self._data))
 
     def update_device_list(self):
         """ Update device list. """
@@ -611,7 +630,7 @@ class JellyfinClientManager(object):
 
                     do_update = self.update_check(
                         self._devices[dev_name], device)
-                    self._devices[dev_name].update_data(device)
+                    self._devices[dev_name].update_session(device)
                     self._devices[dev_name].set_active(True)
                     if dev_update:
                         self._do_new_devices_callback(0)
@@ -683,6 +702,42 @@ class JellyfinClientManager(object):
 
         return self._info
         
+    @property
+    def data(self):
+        """Upcoming card data"""
+        if self.is_stopping:
+            return None
+
+        data = []
+        data.append({
+            "title_default": "$title",
+            "line1_default": "$episode",
+            "line2_default": "$release",
+            "line3_default": "$rating - $runtime",
+            "line4_default": "$number - $studio",
+            "icon": "mdi:arrow-down-bold-circle"
+        })
+
+        if self._data is None or "Items" not in self._data:
+            return data
+
+        for item in self._data["Items"]:
+            data.append({
+                "title": item["SeriesName"],
+                "episode": item["Name"],
+                "flag": False,
+                "airdate": item["DateCreated"],
+                "number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
+                "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                "studio": ",".join(o["Name"] for o in item["Studios"]),
+                "release": dt.parse(item["PremiereDate"]).__format__("%d/%m/%Y") if "PremiereDate" in item else None,
+                "poster": self.get_artwork_url(item["Id"]),
+                "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
+                "genres": ",".join(item["Genres"]),
+            })
+
+        return data
+
     async def trigger_scan(self):
         await self.hass.async_add_executor_job(self.jf_client.jellyfin._post, "Library/Refresh")
 
@@ -710,23 +765,23 @@ class JellyfinClientManager(object):
         }
         await self.hass.async_add_executor_job(self.jf_client.jellyfin.post_session, session_id, "Playing", params)
 
-    async def get_artwork(self, media_id) -> Tuple[Optional[str], Optional[str]]:
+    async def get_artwork(self, media_id, type="Primary") -> Tuple[Optional[str], Optional[str]]:
         query = {
             "format": "PNG",
             "maxWidth": 500,
             "maxHeight": 500
         }
-        image = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "GET", "%s/Images/Primary" % media_id, query)
+        image = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "GET", "%s/Images/%s" % (media_id, type), query)
         if image is not None:
             return (image, "image/png")
 
         return (None, None)
 
+    def get_artwork_url(self, media_id, type="Primary") -> str:
+        return self.jf_client.jellyfin.artwork(media_id, type, 500)
+
     async def get_play_info(self, media_id, profile):
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_play_info, media_id, profile)
-
-    async def get_artwork_url(self, media_id) -> str:
-        return await self.hass.async_add_executor_job(self.jf_client.jellyfin.artwork, media_id, "Primary", 500)
 
     @property
     def api(self):

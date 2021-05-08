@@ -356,7 +356,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
             title=parent_item["Name"],
             can_play=IsPlayable(parent_item["Type"], canPlayList),
             can_expand=True,
-            thumbnail=await jelly_cm.get_artwork_url(media_content_id),
+            thumbnail=jelly_cm.get_artwork_url(media_content_id),
             children=[],
         )
     else:
@@ -371,7 +371,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
             title="",
             can_play=True,
             can_expand=False,
-            thumbnail=await jelly_cm.get_artwork_url(media_content_id),
+            thumbnail=jelly_cm.get_artwork_url(media_content_id),
             children=[],
         )
 
@@ -388,7 +388,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
                     can_play=IsPlayable(item["Type"], canPlayList),
                     can_expand=True,
                     children=[],
-                    thumbnail=await jelly_cm.get_artwork_url(item["Id"])
+                    thumbnail=jelly_cm.get_artwork_url(item["Id"])
                 ))
             else:
                 library_info.children.append(BrowseMediaSource(
@@ -400,7 +400,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
                     can_play=IsPlayable(item["Type"], canPlayList),
                     can_expand=False,
                     children=[],
-                    thumbnail=await jelly_cm.get_artwork_url(item["Id"])
+                    thumbnail=jelly_cm.get_artwork_url(item["Id"])
                 ))
         else:
             library_info.domain=DOMAIN

@@ -89,6 +89,7 @@ class JellyfinSensor(Entity):
             "os": self.jelly_cm.info["OperatingSystem"],
             "update_available": self.jelly_cm.info["HasUpdateAvailable"],
             "version": self.jelly_cm.info["Version"],
+            "data": self.jelly_cm.data,
         }
 
     async def async_trigger_scan(self):
