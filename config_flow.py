@@ -19,8 +19,8 @@ from .const import (
     DOMAIN,
     DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
-    DEFAULT_PORT,
-    CONN_TIMEOUT,
+    CONF_GENERATE_UPCOMING,
+    CONF_GENERATE_YAMC,
 )
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,6 +63,8 @@ class JellyfinFlowHandler(config_entries.ConfigFlow):
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD): str,
             vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
+            vol.Optional(CONF_GENERATE_UPCOMING, default=False): bool,
+            vol.Optional(CONF_GENERATE_YAMC, default=False): bool,
         }
 
         if user_input is not None:
@@ -70,6 +72,8 @@ class JellyfinFlowHandler(config_entries.ConfigFlow):
             self._username = user_input[CONF_USERNAME]
             self._password = user_input[CONF_PASSWORD]
             self._verify_ssl = user_input[CONF_VERIFY_SSL]
+            self._generate_upcoming = user_input[CONF_GENERATE_UPCOMING]
+            self._generate_yamc = user_input[CONF_GENERATE_YAMC]
 
             try:
                 await self.async_set_unique_id(DOMAIN)
@@ -83,6 +87,8 @@ class JellyfinFlowHandler(config_entries.ConfigFlow):
                         CONF_PASSWORD: self._password,
                         CONF_VERIFY_SSL: self._verify_ssl,
                         CONF_CLIENT_ID: str(uuid.uuid4()),
+                        CONF_GENERATE_UPCOMING: self._generate_upcoming,
+                        CONF_GENERATE_YAMC: self._generate_yamc,
                     },
                 )
 
@@ -115,6 +121,8 @@ class JellyfinOptionsFlowHandler(config_entries.OptionsFlow):
         self._username = config_entry.data[CONF_USERNAME] if CONF_USERNAME in config_entry.data else None
         self._password = config_entry.data[CONF_PASSWORD] if CONF_PASSWORD in config_entry.data else None
         self._verify_ssl = config_entry.data[CONF_VERIFY_SSL] if CONF_VERIFY_SSL in config_entry.options else DEFAULT_VERIFY_SSL
+        self._generate_upcoming = config_entry.data[CONF_GENERATE_UPCOMING] if CONF_GENERATE_UPCOMING in config_entry.options else False
+        self._generate_yamc = config_entry.data[CONF_GENERATE_YAMC] if CONF_GENERATE_YAMC in config_entry.options else False
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
@@ -128,12 +136,16 @@ class JellyfinOptionsFlowHandler(config_entries.OptionsFlow):
             self._username = user_input[CONF_USERNAME]
             self._password = user_input[CONF_PASSWORD]
             self._verify_ssl = user_input[CONF_VERIFY_SSL]
+            self._generate_upcoming = user_input[CONF_GENERATE_UPCOMING]
+            self._generate_yamc = user_input[CONF_GENERATE_YAMC]
 
         data_schema = {
             vol.Required(CONF_URL, default=self._url): str,
             vol.Required(CONF_USERNAME, default=self._username): str,
             vol.Required(CONF_PASSWORD, default=self._password): str,
             vol.Optional(CONF_VERIFY_SSL, default=self._verify_ssl): bool,
+            vol.Optional(CONF_GENERATE_UPCOMING, default=self._generate_upcoming): bool,
+            vol.Optional(CONF_GENERATE_YAMC, default=self._generate_yamc): bool,
         }
 
         if user_input is not None:
@@ -145,6 +157,8 @@ class JellyfinOptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_USERNAME: self._username,
                         CONF_PASSWORD: self._password,
                         CONF_VERIFY_SSL: self._verify_ssl,
+                        CONF_GENERATE_UPCOMING: self._generate_upcoming,
+                        CONF_GENERATE_YAMC: self._generate_yamc,
                     },
                 )
 

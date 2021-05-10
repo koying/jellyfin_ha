@@ -15,7 +15,9 @@
                     "url": "Host URL",
                     "username": "Username",
                     "password": "Password",
-                    "verify_ssl": "Verify SSL host"
+                    "verify_ssl": "Verify SSL host",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
                 },
                 "description": "Configure the connection details.",
                 "title": "Jellyfin"
@@ -38,7 +40,9 @@
                     "url": "Host URL",
                     "username": "Username",
                     "password": "Password",
-                    "verify_ssl": "Verify SSL host"
+                    "verify_ssl": "Verify SSL host",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
                 },
                 "description": "Configure the connection details.",
                 "title": "Jellyfin"

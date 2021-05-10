@@ -1,4 +1,5 @@
 """The jellyfin component."""
+import json
 import logging
 import time
 import re
@@ -19,6 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (  # pylint: disable=import-error
     ATTR_ENTITY_ID,
+    ATTR_ID,
     CONF_URL,
     CONF_USERNAME,
     CONF_PASSWORD,
@@ -38,10 +40,17 @@ from .const import (
     CLIENT_VERSION,
     SIGNAL_STATE_UPDATED,
     SERVICE_SCAN,
+    SERVICE_BROWSE,
+    SERVICE_DELETE,
+    SERVICE_YAMC_SETPAGE,
+    ATTR_PAGE,
     STATE_OFF,
     STATE_IDLE,
     STATE_PAUSED,
     STATE_PLAYING,
+    CONF_GENERATE_UPCOMING,
+    CONF_GENERATE_YAMC,
+    YAMC_PAGE_SIZE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,11 +61,39 @@ MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=30)
 
 PATH_REGEX = re.compile("^(https?://)?([^/:]+)(:[0-9]+)?(/.*)?$")
 
-SCAN_SERVICE_SCHEMA = vol.Schema(
+SERVICE_SCHEMA = vol.Schema({
+})
+
+SCAN_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
     {
         vol.Required(ATTR_ENTITY_ID): cv.entity_id,
     }
 )
+YAMC_SETPAGE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_PAGE): vol.All(vol.Coerce(int))
+    }
+)
+DELETE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_ID): cv.string
+    }
+)
+BROWSE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_ID): cv.string
+    }
+)
+
+SERVICE_TO_METHOD = {
+    SERVICE_SCAN: {'method': 'async_trigger_scan', 'schema': SCAN_SERVICE_SCHEMA},
+    SERVICE_BROWSE: {'method': 'async_browse_item', 'schema': BROWSE_SERVICE_SCHEMA},
+    SERVICE_DELETE: {'method': 'async_delete_item', 'schema': DELETE_SERVICE_SCHEMA},
+    SERVICE_YAMC_SETPAGE: {'method': 'async_yamc_setpage', 'schema': YAMC_SETPAGE_SERVICE_SCHEMA},
+}
 
 def autolog(message):
     "Automatically log the current function details."
@@ -108,19 +145,25 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         _LOGGER.error("Cannot connect to Jellyfin server.")
         raise
 
-    async def service_trigger_scan(service):
+    async def async_service_handler(service):
+        """Map services to methods"""
+        method = SERVICE_TO_METHOD.get(service.service)
+        params = {key: value for key, value in service.data.items() if key != "entity_id"}
+
         entity_id = service.data.get(ATTR_ENTITY_ID)
 
         for sensor in hass.data[DOMAIN][config.get(CONF_URL)]["sensor"]["entities"]:
             if sensor.entity_id == entity_id:
-                await sensor.async_trigger_scan()
+                await getattr(sensor, method['method'])(**params)
 
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SCAN,
-        service_trigger_scan,
-        schema=SCAN_SERVICE_SCHEMA,
-    )
+        for media_player in hass.data[DOMAIN][config.get(CONF_URL)]["media_player"]["entities"]:
+            if media_player.entity_id == entity_id:
+                await getattr(media_player, method['method'])(**params)
+
+    for my_service in SERVICE_TO_METHOD:
+        schema = SERVICE_TO_METHOD[my_service].get('schema', SERVICE_SCHEMA)
+        hass.services.async_register(
+            DOMAIN, my_service, async_service_handler, schema=schema)
 
     for component in PLATFORMS:
         hass.data[DOMAIN][config.get(CONF_URL)][component] = {}
@@ -143,6 +186,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
 async def _update_listener(hass, config_entry):
     """Update listener."""
+    _LOGGER.debug("reload triggered")
     await hass.config_entries.async_reload(config_entry.entry_id)
 
 
@@ -403,6 +447,9 @@ class JellyfinDevice(object):
     async def play_media(self, media_id):
         await self.jf_manager.play_media(self.session_id, media_id)
 
+    async def browse_item(self, media_id):
+        await self.jf_manager.view_media(self.session_id, media_id)
+
 class JellyfinClientManager(object):
     def __init__(self, hass: HomeAssistant, config_entry):
         self.hass = hass
@@ -414,6 +461,8 @@ class JellyfinClientManager(object):
         self.host = config_entry[CONF_URL]
         self._info = None
         self._data = None
+        self._yamc = None
+        self._yamc_cur_page = 1
 
         self.config_entry = config_entry
         self.server_url = ""
@@ -582,12 +631,27 @@ class JellyfinClientManager(object):
 
     @util.Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def update_data(self):
-        self._data = await self.hass.async_add_executor_job(self.jf_client.jellyfin.shows, "/NextUp", {
-            'Limit': 10,
-            'UserId': "{UserId}",
-            "fields": "DateCreated,Studios,Genres"
-        })
-        _LOGGER.debug("update_data: %s", str(self._data))
+        if self.config_entry[CONF_GENERATE_UPCOMING]:
+            self._data = await self.hass.async_add_executor_job(self.jf_client.jellyfin.shows, "/NextUp", {
+                'Limit': YAMC_PAGE_SIZE,
+                'UserId': "{UserId}",
+                "fields": "DateCreated,Studios,Genres"
+            })
+            #_LOGGER.debug("update data: %s", str(self._data))
+
+        if self.config_entry[CONF_GENERATE_YAMC]:
+            self._yamc = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "", "GET", {
+                'startIndex': (self._yamc_cur_page - 1) * YAMC_PAGE_SIZE,
+                'limit': YAMC_PAGE_SIZE,
+                'userId': "{UserId}",
+                'includeItemTypes': "Movie",
+                'sortBy': 'DateCreated',
+                'sortOrder': 'Descending',
+                'recursive': 'true',
+                "fields": "DateCreated,Studios,Genres,Taglines,ProviderIds",
+                'collapseBoxSetItems': 'false',
+            })
+            _LOGGER.debug("update yamc: %s", str(self._yamc))
 
     def update_device_list(self):
         """ Update device list. """
@@ -705,7 +769,7 @@ class JellyfinClientManager(object):
     @property
     def data(self):
         """Upcoming card data"""
-        if self.is_stopping:
+        if self.config_entry[CONF_GENERATE_UPCOMING] == False or self.is_stopping:
             return None
 
         data = []
@@ -734,12 +798,104 @@ class JellyfinClientManager(object):
                 "poster": self.get_artwork_url(item["Id"]),
                 "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
                 "genres": ",".join(item["Genres"]),
+                "rating": None,
+                "stream_url": None,
+                "trakt_url": None,
             })
 
         return data
 
+    @property
+    def yamc(self):
+        """Upcoming card data"""
+        if self.config_entry[CONF_GENERATE_YAMC] == False or self.is_stopping:
+            return None
+
+        data = []
+        data.append({
+            'title_default': '$title',
+            'line1_default': '$tagline',
+            'line2_default': '$empty',
+            'line3_default': '$release - $genres',
+            'line4_default': '$runtime - $rating - $info',
+            'line5_default': '$date',
+            'text_link_default': '$trakt_url',
+            'link_default': '$stream_url',
+        })
+
+        if self._yamc is None or "Items" not in self._yamc:
+            return data
+
+        for item in self._yamc["Items"]:
+            imdbid = None
+            if item["Type"] == "Movie":
+                if "ProviderIds" in item and "Imdb" in item["ProviderIds"]:
+                    imdbid = item["ProviderIds"]["Imdb"]
+
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["Name"],
+                    "tagline": item["Taglines"][0] if "Taglines" in item and len(item["Taglines"]) > 0 else "",
+                    "flag": False,
+                    "airdate": item["DateCreated"],
+                    #"number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
+                    "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]),
+                    "release": dt.parse(item["PremiereDate"]).__format__("%Y") if "PremiereDate" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
+                    "genres": ",".join(item["Genres"]),
+                    "progress": 0,
+                    "rating": None,
+                    "stream_url": None,
+                    'trakt_url': f"https://trakt.tv/search/imdb/{imdbid}?id_type=movie" if imdbid else "",
+                })
+            elif item["Type"] == "Episode":
+                if "ProviderIds" in item and "Imdb" in item["ProviderIds"]:
+                    imdbid = item["ProviderIds"]["Imdb"]
+
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["SeriesName"] if "SeriesName" in item else item["Name"],
+                    "episode": item["Name"],
+                    "tagline": item["Taglines"][0] if "Taglines" in item else "",
+                    "flag": False,
+                    "airdate": item["DateCreated"],
+                    "number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
+                    "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]),
+                    "release": dt.parse(item["PremiereDate"]).__format__("%d/%m/%Y") if "PremiereDate" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
+                    "genres": ",".join(item["Genres"]),
+                    "progress": 0,
+                    "rating": None,
+                    "stream_url": None,
+                    'trakt_url': f"https://trakt.tv/search/imdb/{imdbid}?id_type=movie" if imdbid else "",
+                })
+
+        attrs = {}
+        attrs["last_search"] = None
+        attrs["playlists"] = json.dumps([])
+        attrs['total_items'] = min(50, self._yamc["TotalRecordCount"])
+        attrs["page"] = self._yamc_cur_page
+        attrs["page_size"] = YAMC_PAGE_SIZE
+        attrs['data'] = json.dumps(data)
+
+        return attrs
+
     async def trigger_scan(self):
         await self.hass.async_add_executor_job(self.jf_client.jellyfin._post, "Library/Refresh")
+
+    async def delete_item(self, id):
+        await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, f"/{id}", "DELETE")
+        await self.update_data(no_throttle=True)
+
+    async def yamc_set_page(self, page):
+        self._yamc_cur_page = page
+        await self.update_data(no_throttle=True)
 
     def get_server_url(self) -> str:
         return self.jf_client.config.data["auth.server"]
@@ -764,6 +920,17 @@ class JellyfinClientManager(object):
             "itemIds": media_id
         }
         await self.hass.async_add_executor_job(self.jf_client.jellyfin.post_session, session_id, "Playing", params)
+
+    async def view_media(self, session_id, media_id):
+        item = await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_item, media_id)
+        _LOGGER.debug(f'view_media: {str(item)}')
+
+        params = {
+            "itemId": media_id,
+            "itemType": item["Type"],
+            "itemName": item["Name"]
+        }
+        await self.hass.async_add_executor_job(self.jf_client.jellyfin.post_session, session_id, "Viewing", params)
 
     async def get_artwork(self, media_id, type="Primary") -> Tuple[Optional[str], Optional[str]]:
         query = {

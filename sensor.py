@@ -85,13 +85,30 @@ class JellyfinSensor(Entity):
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        return {
+        extra_attr = {
             "os": self.jelly_cm.info["OperatingSystem"],
             "update_available": self.jelly_cm.info["HasUpdateAvailable"],
             "version": self.jelly_cm.info["Version"],
-            "data": self.jelly_cm.data,
         }
+        if self.jelly_cm.data:
+            extra_attr["data"] = self.jelly_cm.data
+        if self.jelly_cm.yamc:
+            extra_attr["yamc"] = self.jelly_cm.yamc
+        
+        return extra_attr
 
     async def async_trigger_scan(self):
         _LOGGER.info("Library scan triggered")
         await self.jelly_cm.trigger_scan()
+
+    async def async_delete_item(self, id):
+        _LOGGER.debug("async_delete_item triggered")
+        await self.jelly_cm.delete_item(id)
+        self.async_schedule_update_ha_state()
+
+    async def async_yamc_setpage(self, page):
+        _LOGGER.debug("YAMC setpage: %d", page)
+
+        await self.jelly_cm.yamc_set_page(page)
+        self.async_schedule_update_ha_state()
+

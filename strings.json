@@ -4,13 +4,15 @@
         "flow_title": "Jellyfin Configuration",
         "step": {
             "user": {
-                "title": "Luci Config",
-                "description": "Configure the connection details.",
+                "title": "Jellyfin Config",
+                "description": "Configure the integration.",
                 "data": {
                     "url": "[%key:common::config_flow::data::url%]",
                     "username": "[%key:common::config_flow::data::username%]",
                     "password": "[%key:common::config_flow::data::password%]",
-                    "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]"
+                    "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
                 }
             }
         },
@@ -33,7 +35,9 @@
                     "url": "[%key:common::config_flow::data::url%]",
                     "username": "[%key:common::config_flow::data::username%]",
                     "password": "[%key:common::config_flow::data::password%]",
-                    "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]"
+                    "verify_ssl": "[%key:common::config_flow::data::verify_ssl%]",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
                 }
             }
         },

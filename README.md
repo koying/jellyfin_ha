@@ -14,6 +14,7 @@ Jellyfin integration for Home Assistant
 
 - 1 media_player entity per device
 - 1 sensor per server
+- Supports the "upcoming-media-card" custom card
   
 ### Media Browser
 
