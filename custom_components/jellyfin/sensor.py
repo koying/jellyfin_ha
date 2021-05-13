@@ -24,8 +24,6 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(hass: HomeAssistant, config_entry, async_add_entities):
 
     _jelly: JellyfinClientManager = hass.data[DOMAIN][config_entry.data.get(CONF_URL)]["manager"]
-    hass.data[DOMAIN][_jelly.host][PLATFORM]["entities"] = []
-
     async_add_entities([JellyfinSensor(_jelly)], True)
     
 

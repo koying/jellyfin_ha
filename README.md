@@ -4,7 +4,11 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
-### 1.0
+### 1.0.1
+
+- Config flow fixes
+
+### 1.0.0
 
 - Initial public release
 

@@ -1,4 +1,5 @@
 """The jellyfin component."""
+import asyncio
 import json
 import logging
 import time
@@ -136,6 +137,8 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    autolog("<<<")
+
     global UPDATE_UNLISTENER
     if UPDATE_UNLISTENER:
         UPDATE_UNLISTENER()
@@ -184,10 +187,13 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         hass.services.async_register(
             DOMAIN, my_service, async_service_handler, schema=schema)
 
-    for component in PLATFORMS:
-        hass.data[DOMAIN][config.get(CONF_URL)][component] = {}
+    await _jelly.start()
+
+    for platform in PLATFORMS:
+        hass.data[DOMAIN][config.get(CONF_URL)][platform] = {}
+        hass.data[DOMAIN][config.get(CONF_URL)][platform]["entities"] = []
         hass.async_create_task(
-            hass.config_entries.async_forward_entry_setup(config_entry, component)
+            hass.config_entries.async_forward_entry_setup(config_entry, platform)
         )
 
     async_dispatcher_send(hass, SIGNAL_STATE_UPDATED)
@@ -198,12 +204,26 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_jellyfin)
     
-    await _jelly.start()
-
     return True
 
+async def async_unload_entry(hass: HomeAssistant, config_entry: ConfigEntry):
+    _LOGGER.info("Unloading jellyfin")
 
-async def _update_listener(hass, config_entry):
+    unload_ok = all(
+        await asyncio.gather(
+            *[
+                hass.config_entries.async_forward_entry_unload(config_entry, component)
+                for component in PLATFORMS
+            ]
+        )
+    )
+
+    _jelly: JellyfinClientManager = hass.data[DOMAIN][config_entry.data.get(CONF_URL)]["manager"]
+    await _jelly.stop()
+
+    return unload_ok
+
+async def _update_listener(hass: HomeAssistant, config_entry):
     """Update listener."""
     _LOGGER.debug("reload triggered")
     await hass.config_entries.async_reload(config_entry.entry_id)
@@ -644,10 +664,10 @@ class JellyfinClientManager(object):
         await self.update_data()
 
     async def stop(self):
-        autolog(">>>")
+        autolog("<<<")
 
-        await self.hass.async_add_executor_job(self.jf_client.stop)
         self.is_stopping = True
+        await self.hass.async_add_executor_job(self.jf_client.stop)
 
     @util.Throttle(MIN_TIME_BETWEEN_UPDATES)
     async def update_data (self):

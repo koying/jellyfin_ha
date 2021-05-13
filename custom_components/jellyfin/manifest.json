@@ -1,7 +1,7 @@
 {
     "domain": "jellyfin",
     "name": "Jellyfin",
-    "version": "1.0",
+    "version": "1.0.1",
     "config_flow": true,
     "documentation": "https://www.home-assistant.io/integrations/emby",
     "requirements": ["jellyfin-apiclient-python==1.7.2"],

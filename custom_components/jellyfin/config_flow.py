@@ -120,9 +120,9 @@ class JellyfinOptionsFlowHandler(config_entries.OptionsFlow):
         self._url = config_entry.data[CONF_URL] if CONF_URL in config_entry.data else None
         self._username = config_entry.data[CONF_USERNAME] if CONF_USERNAME in config_entry.data else None
         self._password = config_entry.data[CONF_PASSWORD] if CONF_PASSWORD in config_entry.data else None
-        self._verify_ssl = config_entry.data[CONF_VERIFY_SSL] if CONF_VERIFY_SSL in config_entry.options else DEFAULT_VERIFY_SSL
-        self._generate_upcoming = config_entry.data[CONF_GENERATE_UPCOMING] if CONF_GENERATE_UPCOMING in config_entry.options else False
-        self._generate_yamc = config_entry.data[CONF_GENERATE_YAMC] if CONF_GENERATE_YAMC in config_entry.options else False
+        self._verify_ssl = config_entry.data[CONF_VERIFY_SSL] if CONF_VERIFY_SSL in config_entry.data else DEFAULT_VERIFY_SSL
+        self._generate_upcoming = config_entry.data[CONF_GENERATE_UPCOMING] if CONF_GENERATE_UPCOMING in config_entry.data else False
+        self._generate_yamc = config_entry.data[CONF_GENERATE_YAMC] if CONF_GENERATE_YAMC in config_entry.data else False
 
     async def async_step_init(self, user_input=None):
         """Manage the options."""
