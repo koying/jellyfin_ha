@@ -646,7 +646,8 @@ class JellyfinClientManager(object):
                         break
             elif event_name in ("LibraryChanged", "UserDataChanged"):
                 for sensor in self.hass.data[DOMAIN][self.host]["sensor"]["entities"]:
-                    sensor.schedule_update_ha_state()
+                    autolog("LibraryChanged: trigger update")
+                    sensor.schedule_update_ha_state(force_refresh=True)
             elif event_name == "Sessions":
                 self._sessions = self.clean_none_dict_values(data)["value"]
                 self.update_device_list()
@@ -669,8 +670,7 @@ class JellyfinClientManager(object):
         self.is_stopping = True
         await self.hass.async_add_executor_job(self.jf_client.stop)
 
-    @util.Throttle(MIN_TIME_BETWEEN_UPDATES)
-    async def update_data (self):
+    async def update_data(self):
         autolog("<<<")
         
         if self.config_entry[CONF_GENERATE_UPCOMING]:
@@ -1058,21 +1058,21 @@ class JellyfinClientManager(object):
 
     async def delete_item(self, id):
         await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, f"/{id}", "DELETE")
-        await self.update_data(no_throttle=True)
+        await self.update_data()
 
     async def search_item(self, search_term):
         self._yamc_cur_page = 1
         self._last_search = search_term
-        await self.update_data(no_throttle=True)
+        await self.update_data()
 
     async def yamc_set_page(self, page):
         self._yamc_cur_page = page
-        await self.update_data(no_throttle=True)
+        await self.update_data()
 
     async def yamc_set_playlist(self, playlist):
         self._last_search = ""
         self._last_playlist = playlist
-        await self.update_data(no_throttle=True)
+        await self.update_data()
 
     def get_server_url(self) -> str:
         return self.jf_client.config.data["auth.server"]

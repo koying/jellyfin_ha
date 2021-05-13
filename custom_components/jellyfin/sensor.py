@@ -37,9 +37,11 @@ class JellyfinSensor(Entity):
         self._available = True
 
     async def async_added_to_hass(self):
+        autolog("<<<")
         self.hass.data[DOMAIN][self.jelly_cm.host][PLATFORM]["entities"].append(self)
 
     async def async_will_remove_from_hass(self):
+        autolog("<<<")
         self.hass.data[DOMAIN][self.jelly_cm.host][PLATFORM]["entities"].remove(self)
 
     @property
@@ -96,7 +98,8 @@ class JellyfinSensor(Entity):
         return extra_attr
 
     async def async_update(self):
-        """Synchronise state from the vacuum."""
+        """Synchronise state from the server."""
+        autolog("<<<")
         await self.jelly_cm.update_data()
 
     async def async_trigger_scan(self):
