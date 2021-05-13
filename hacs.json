@@ -1,6 +1,6 @@
 {
     "name": "Jellyfin",
     "domains": ["sensor", "media_player"],
-    "iot_class": ["Cloud Polling"],
+    "iot_class": ["Cloud Pushing"],
     "render_readme": true
   }
