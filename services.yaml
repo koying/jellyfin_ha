@@ -13,6 +13,29 @@ trigger_scan:
           integration: jellyfin
           domain: sensor
 
+search:
+  # Description of the service
+  name: Browse to an item
+  description: "Search for items on a Jellyfin device"
+  fields:
+    entity_id:
+      name: Entity
+      description: Jellyfin sensor entity.
+      required: true
+      example: "sensor.jellyfin_cloud"
+      selector:
+        entity:
+          integration: jellyfin
+          domain: sensor
+    id:
+      name: Search term
+      description: Search terms to look for.
+      required: true
+      example: "bourne"
+      selector:
+        text:
+
+
 browse:
   # Description of the service
   name: Browse to an item

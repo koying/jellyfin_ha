@@ -22,8 +22,11 @@ Jellyfin integration for Home Assistant
   
 ### Media Source
 
-- Browse and stream to device (e.g. Chromecast)
+- Browse and stream to a cast device (e.g. Chromecast)
 
 ### Services
 
 - `trigger_scan`: Trigger a server media scan
+- `browse`: Show a media info on a device
+- `delete`: Delete a media
+- `search`: Search for media (for compatible fontends)

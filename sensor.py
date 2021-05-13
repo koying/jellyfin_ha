@@ -97,6 +97,10 @@ class JellyfinSensor(Entity):
         
         return extra_attr
 
+    async def async_update(self):
+        """Synchronise state from the vacuum."""
+        await self.jelly_cm.update_data()
+
     async def async_trigger_scan(self):
         _LOGGER.info("Library scan triggered")
         await self.jelly_cm.trigger_scan()
@@ -106,9 +110,20 @@ class JellyfinSensor(Entity):
         await self.jelly_cm.delete_item(id)
         self.async_schedule_update_ha_state()
 
+    async def async_search_item(self, search_term):
+        _LOGGER.debug(f"async_search_item triggered: {search_term}")
+        await self.jelly_cm.search_item(search_term)
+        self.async_schedule_update_ha_state()
+
     async def async_yamc_setpage(self, page):
         _LOGGER.debug("YAMC setpage: %d", page)
 
         await self.jelly_cm.yamc_set_page(page)
+        self.async_schedule_update_ha_state()
+
+    async def async_yamc_setplaylist(self, playlist):
+        _LOGGER.debug("YAMC setplaylist: %s", playlist)
+
+        await self.jelly_cm.yamc_set_playlist(playlist)
         self.async_schedule_update_ha_state()
 

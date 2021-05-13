@@ -42,8 +42,12 @@ from .const import (
     SERVICE_SCAN,
     SERVICE_BROWSE,
     SERVICE_DELETE,
+    SERVICE_SEARCH,
     SERVICE_YAMC_SETPAGE,
+    SERVICE_YAMC_SETPLAYLIST,
     ATTR_PAGE,
+    ATTR_PLAYLIST,
+    ATTR_SEARCH_TERM,
     STATE_OFF,
     STATE_IDLE,
     STATE_PAUSED,
@@ -51,6 +55,7 @@ from .const import (
     CONF_GENERATE_UPCOMING,
     CONF_GENERATE_YAMC,
     YAMC_PAGE_SIZE,
+    PLAYLISTS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,10 +80,22 @@ YAMC_SETPAGE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
         vol.Required(ATTR_PAGE): vol.All(vol.Coerce(int))
     }
 )
+YAMC_SETPLAYLIST_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_PLAYLIST): cv.string
+    }
+)
 DELETE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
     {
         vol.Required(ATTR_ENTITY_ID): cv.entity_id,
         vol.Required(ATTR_ID): cv.string
+    }
+)
+SEARCH_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
+    {
+        vol.Required(ATTR_ENTITY_ID): cv.entity_id,
+        vol.Required(ATTR_SEARCH_TERM): cv.string
     }
 )
 BROWSE_SERVICE_SCHEMA = SERVICE_SCHEMA.extend(
@@ -92,7 +109,9 @@ SERVICE_TO_METHOD = {
     SERVICE_SCAN: {'method': 'async_trigger_scan', 'schema': SCAN_SERVICE_SCHEMA},
     SERVICE_BROWSE: {'method': 'async_browse_item', 'schema': BROWSE_SERVICE_SCHEMA},
     SERVICE_DELETE: {'method': 'async_delete_item', 'schema': DELETE_SERVICE_SCHEMA},
+    SERVICE_SEARCH: {'method': 'async_search_item', 'schema': SEARCH_SERVICE_SCHEMA},
     SERVICE_YAMC_SETPAGE: {'method': 'async_yamc_setpage', 'schema': YAMC_SETPAGE_SERVICE_SCHEMA},
+    SERVICE_YAMC_SETPLAYLIST: {'method': 'async_yamc_setplaylist', 'schema': YAMC_SETPLAYLIST_SERVICE_SCHEMA},
 }
 
 def autolog(message):
@@ -463,6 +482,8 @@ class JellyfinClientManager(object):
         self._data = None
         self._yamc = None
         self._yamc_cur_page = 1
+        self._last_playlist = ""
+        self._last_search = ""
 
         self.config_entry = config_entry
         self.server_url = ""
@@ -604,7 +625,6 @@ class JellyfinClientManager(object):
                     if self.login():
                         break
             elif event_name in ("LibraryChanged", "UserDataChanged"):
-                self.update_data()
                 for sensor in self.hass.data[DOMAIN][self.host]["sensor"]["entities"]:
                     sensor.schedule_update_ha_state()
             elif event_name == "Sessions":
@@ -630,28 +650,53 @@ class JellyfinClientManager(object):
         self.is_stopping = True
 
     @util.Throttle(MIN_TIME_BETWEEN_UPDATES)
-    async def update_data(self):
+    async def update_data (self):
+        autolog("<<<")
+        
         if self.config_entry[CONF_GENERATE_UPCOMING]:
             self._data = await self.hass.async_add_executor_job(self.jf_client.jellyfin.shows, "/NextUp", {
                 'Limit': YAMC_PAGE_SIZE,
                 'UserId': "{UserId}",
-                "fields": "DateCreated,Studios,Genres"
+                "fields": "DateCreated,Studios,Genres",
+                'excludeItemTypes': 'Folder',
             })
             #_LOGGER.debug("update data: %s", str(self._data))
 
         if self.config_entry[CONF_GENERATE_YAMC]:
-            self._yamc = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "", "GET", {
+            query = {
                 'startIndex': (self._yamc_cur_page - 1) * YAMC_PAGE_SIZE,
                 'limit': YAMC_PAGE_SIZE,
                 'userId': "{UserId}",
-                'includeItemTypes': "Movie",
-                'sortBy': 'DateCreated',
-                'sortOrder': 'Descending',
                 'recursive': 'true',
-                "fields": "DateCreated,Studios,Genres,Taglines,ProviderIds",
+                "fields": "DateCreated,Studios,Genres,Taglines,ProviderIds,Ratings,MediaStreams",
                 'collapseBoxSetItems': 'false',
-            })
-            _LOGGER.debug("update yamc: %s", str(self._yamc))
+                'excludeItemTypes': 'Folder',
+            }
+
+            if not self._last_playlist:
+                self._last_playlist = "latest_movies"
+
+            if self._last_search:
+                query["searchTerm"] = self._last_search
+            elif self._last_playlist:
+                for pl in PLAYLISTS:
+                    if pl["name"] == self._last_playlist:
+                        query.update(pl["query"] )
+
+            if self._last_playlist == "nextup":
+                self._yamc = await self.hass.async_add_executor_job(self.jf_client.jellyfin.shows, "/NextUp", query)
+            else:
+                self._yamc = await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, "", "GET", query)        
+
+            if self._yamc is None or "Items" not in self._yamc:
+                _LOGGER.error("Cannot update data")
+                return
+
+            for item in self._yamc["Items"]:
+                item["stream_url"] = (await self.get_stream_url(item["Id"], item["Type"]))[0]
+            
+            _LOGGER.debug("update yamc query: %s", str(query))
+            _LOGGER.debug("         response: %s", str(self._yamc))
 
     def update_device_list(self):
         """ Update device list. """
@@ -800,7 +845,7 @@ class JellyfinClientManager(object):
                 "genres": ",".join(item["Genres"]),
                 "rating": None,
                 "stream_url": None,
-                "trakt_url": None,
+                "info_url": None,
             })
 
         return data
@@ -819,7 +864,7 @@ class JellyfinClientManager(object):
             'line3_default': '$release - $genres',
             'line4_default': '$runtime - $rating - $info',
             'line5_default': '$date',
-            'text_link_default': '$trakt_url',
+            'text_link_default': '$info_url',
             'link_default': '$stream_url',
         })
 
@@ -827,17 +872,30 @@ class JellyfinClientManager(object):
             return data
 
         for item in self._yamc["Items"]:
-            imdbid = None
+            provid = None
+
+            progress = 0
+            if "PlayedPercentage" in item["UserData"]:
+                progress = item["UserData"]["PlayedPercentage"]
+            elif item["UserData"]["Played"]:
+                progress = 100
+
+            rating = None
+            if "CommunityRating" in item:
+                rating = '\N{BLACK STAR} {}'.format(round(item["CommunityRating"], 1))
+            elif "CriticRating" in item:
+                rating = '\N{BLACK STAR} {}'.format(round(item["CriticRating"] / 10, 1))
+
             if item["Type"] == "Movie":
                 if "ProviderIds" in item and "Imdb" in item["ProviderIds"]:
-                    imdbid = item["ProviderIds"]["Imdb"]
+                    provid = item["ProviderIds"]["Imdb"]
 
                 data.append({
                     "id": item["Id"],
                     "type": item["Type"],
                     "title": item["Name"],
                     "tagline": item["Taglines"][0] if "Taglines" in item and len(item["Taglines"]) > 0 else "",
-                    "flag": False,
+                    "flag": item["UserData"]["Played"],
                     "airdate": item["DateCreated"],
                     #"number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
                     "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
@@ -846,22 +904,22 @@ class JellyfinClientManager(object):
                     "poster": self.get_artwork_url(item["Id"]),
                     "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
                     "genres": ",".join(item["Genres"]),
-                    "progress": 0,
-                    "rating": None,
-                    "stream_url": None,
-                    'trakt_url': f"https://trakt.tv/search/imdb/{imdbid}?id_type=movie" if imdbid else "",
+                    "progress": progress,
+                    "rating": rating,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
+                    'info_url': f"https://trakt.tv/search/imdb/{provid}?id_type=movie" if provid else "",
                 })
-            elif item["Type"] == "Episode":
+            elif item["Type"] == "Series":
                 if "ProviderIds" in item and "Imdb" in item["ProviderIds"]:
-                    imdbid = item["ProviderIds"]["Imdb"]
+                    provid = item["ProviderIds"]["Imdb"]
 
                 data.append({
                     "id": item["Id"],
                     "type": item["Type"],
                     "title": item["SeriesName"] if "SeriesName" in item else item["Name"],
                     "episode": item["Name"],
-                    "tagline": item["Taglines"][0] if "Taglines" in item else "",
-                    "flag": False,
+                    "tagline": item["Name"],
+                    "flag": item["UserData"]["Played"],
                     "airdate": item["DateCreated"],
                     "number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
                     "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
@@ -870,15 +928,104 @@ class JellyfinClientManager(object):
                     "poster": self.get_artwork_url(item["Id"]),
                     "fanart": self.get_artwork_url(item["Id"], "Backdrop"),
                     "genres": ",".join(item["Genres"]),
+                    "progress": progress,
+                    "rating": rating,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
+                    'info_url': f"https://trakt.tv/search/imdb/{provid}?id_type=series" if provid else "",
+                })
+            elif item["Type"] == "Episode":
+                if "ProviderIds" in item and "Imdb" in item["ProviderIds"]:
+                    provid = item["ProviderIds"]["Imdb"]
+
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["SeriesName"] if "SeriesName" in item else item["Name"],
+                    "episode": item["Name"],
+                    "tagline": item["Name"],
+                    "flag": item["UserData"]["Played"],
+                    "airdate": item["DateCreated"],
+                    "number": f'S{item["ParentIndexNumber"]}E{item["IndexNumber"]}',
+                    "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]),
+                    "release": dt.parse(item["PremiereDate"]).__format__("%d/%m/%Y") if "PremiereDate" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Primary"),
+                    "genres": ",".join(item["Genres"]),
+                    "progress": progress,
+                    "rating": rating,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
+                    'info_url': f"https://trakt.tv/search/imdb/{provid}?id_type=episode" if provid else "",
+                })
+            elif item["Type"] == "MusicAlbum":
+                if "ProviderIds" in item and "MusicBrainzAlbum" in item["ProviderIds"]:
+                    provid = item["ProviderIds"]["MusicBrainzAlbum"]
+
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["Name"],
+                    "tagline": ",".join(item["Artists"]) if "Artists" in item else None,
+                    "flag": False,
+                    "airdate": item["DateCreated"],
+                    "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]),
+                    "release": dt.parse(item["PremiereDate"]).__format__("%Y") if "PremiereDate" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Primary"),
+                    "genres": ",".join(item["Genres"]),
                     "progress": 0,
-                    "rating": None,
-                    "stream_url": None,
-                    'trakt_url': f"https://trakt.tv/search/imdb/{imdbid}?id_type=movie" if imdbid else "",
+                    "rating": rating,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
+                    'info_url': f"https://musicbrainz.org/album/{provid}" if provid else "",
+                })
+            elif item["Type"] == "MusicArtist":
+                if "ProviderIds" in item and "MusicBrainzArtist" in item["ProviderIds"]:
+                    provid = item["ProviderIds"]["MusicBrainzArtist"]
+
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["Name"],
+                    "tagline": ",".join(item["Artists"]) if "Artists" in item else None,
+                    "flag": False,
+                    "airdate": item["DateCreated"],
+                    "runtime": None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]),
+                    "release": dt.parse(item["DateCreated"]).__format__("%Y") if "DateCreated" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Primary"),
+                    "genres": ",".join(item["Genres"]),
+                    "progress": 0,
+                    "rating": rating,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
+                    'info_url': f"https://musicbrainz.org/artist/{provid}" if provid else "",
+                })
+            else:
+                data.append({
+                    "id": item["Id"],
+                    "type": item["Type"],
+                    "title": item["SeriesName"] if "SeriesName" in item else item["Name"],
+                    "episode": item["Name"],
+                    "tagline": item["Name"],
+                    "flag": False,
+                    "airdate": item["DateCreated"],
+                    "runtime": int(item["RunTimeTicks"] / 10000000 / 60) if "RunTimeTicks" in item else None,
+                    "studio": ",".join(o["Name"] for o in item["Studios"]) if "Studios" in item else None,
+                    "release": dt.parse(item["PremiereDate"]).__format__("%d/%m/%Y") if "PremiereDate" in item else None,
+                    "poster": self.get_artwork_url(item["Id"]),
+                    "fanart": self.get_artwork_url(item["Id"], "Primary"),
+                    "genres": ",".join(item["Genres"]) if "Genres" in item else None,
+                    "progress": 0,
+                    "rating": rating,
+                    "stream_url": item["stream_url"],
+                    'info_url': None,
                 })
 
         attrs = {}
-        attrs["last_search"] = None
-        attrs["playlists"] = json.dumps([])
+        attrs["last_search"] = self._last_search
+        attrs["last_playlist"] = self._last_playlist
+        attrs["playlists"] = json.dumps(PLAYLISTS)
         attrs['total_items'] = min(50, self._yamc["TotalRecordCount"])
         attrs["page"] = self._yamc_cur_page
         attrs["page_size"] = YAMC_PAGE_SIZE
@@ -893,8 +1040,18 @@ class JellyfinClientManager(object):
         await self.hass.async_add_executor_job(self.jf_client.jellyfin.items, f"/{id}", "DELETE")
         await self.update_data(no_throttle=True)
 
+    async def search_item(self, search_term):
+        self._yamc_cur_page = 1
+        self._last_search = search_term
+        await self.update_data(no_throttle=True)
+
     async def yamc_set_page(self, page):
         self._yamc_cur_page = page
+        await self.update_data(no_throttle=True)
+
+    async def yamc_set_playlist(self, playlist):
+        self._last_search = ""
+        self._last_playlist = playlist
         await self.update_data(no_throttle=True)
 
     def get_server_url(self) -> str:
@@ -949,6 +1106,127 @@ class JellyfinClientManager(object):
 
     async def get_play_info(self, media_id, profile):
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_play_info, media_id, profile)
+
+    async def get_stream_url(self, media_id, media_content_type) -> Tuple[Optional[str], Optional[str]]:
+        profile = {
+            "Name": USER_APP_NAME,
+            "MaxStreamingBitrate": 25000 * 1000,
+            "MusicStreamingTranscodingBitrate": 1920000,
+            "TimelineOffsetSeconds": 5,
+            "TranscodingProfiles": [
+                {
+                    "Type": "Audio",
+                    "Container": "mp3",
+                    "Protocol": "http",
+                    "AudioCodec": "mp3",
+                    "MaxAudioChannels": "2",
+                },
+                {
+                    "Type": "Video",
+                    "Container": "mp4",
+                    "Protocol": "http",
+                    "AudioCodec": "aac,mp3,opus,flac,vorbis",
+                    "VideoCodec": "h264,mpeg4,mpeg2video",
+                    "MaxAudioChannels": "6",
+                },
+                {"Container": "jpeg", "Type": "Photo"},
+            ],
+            "DirectPlayProfiles": [
+                {
+                    "Type": "Audio",
+                    "Container": "mp3",
+                    "AudioCodec": "mp3"
+                },
+                {
+                    "Type": "Audio",
+                    "Container": "m4a,m4b",
+                    "AudioCodec": "aac"
+                },
+                {
+                    "Type": "Video",
+                    "Container": "mp4,m4v",
+                    "AudioCodec": "aac,mp3,opus,flac,vorbis",
+                    "VideoCodec": "h264,mpeg4,mpeg2video",
+                    "MaxAudioChannels": "6",
+                },
+            ],
+            "ResponseProfiles": [],
+            "ContainerProfiles": [],
+            "CodecProfiles": [],
+            "SubtitleProfiles": [
+                {"Format": "srt", "Method": "External"},
+                {"Format": "srt", "Method": "Embed"},
+                {"Format": "ass", "Method": "External"},
+                {"Format": "ass", "Method": "Embed"},
+                {"Format": "sub", "Method": "Embed"},
+                {"Format": "sub", "Method": "External"},
+                {"Format": "ssa", "Method": "Embed"},
+                {"Format": "ssa", "Method": "External"},
+                {"Format": "smi", "Method": "Embed"},
+                {"Format": "smi", "Method": "External"},
+                # Jellyfin currently refuses to serve these subtitle types as external.
+                {"Format": "pgssub", "Method": "Embed"},
+                # {
+                #    "Format": "pgssub",
+                #    "Method": "External"
+                # },
+                {"Format": "dvdsub", "Method": "Embed"},
+                # {
+                #    "Format": "dvdsub",
+                #    "Method": "External"
+                # },
+                {"Format": "pgs", "Method": "Embed"},
+                # {
+                #    "Format": "pgs",
+                #    "Method": "External"
+                # }
+            ],
+        }
+
+        playback_info = await self.get_play_info(media_id, profile)
+        _LOGGER.debug("playbackinfo: %s", str(playback_info))
+        if playback_info is None or "MediaSources" not in playback_info:
+            _LOGGER.error(f"No playback info for item id {media_id}")
+            return (None, None)
+
+        selected = None
+        weight_selected = 0
+        for media_source in playback_info["MediaSources"]:
+            weight = (media_source.get("SupportsDirectStream") or 0) * 50000 + (
+                media_source.get("Bitrate") or 0
+            ) / 1000
+            if weight > weight_selected:
+                weight_selected = weight
+                selected = media_source
+        
+        if selected is None:
+            return (None, None)
+
+        if selected["SupportsDirectStream"]:
+            if media_content_type in ("Audio", "track"):
+                mimetype = "audio/" + selected["Container"]
+                url = self.get_server_url() + "/Audio/%s/stream?static=true&MediaSourceId=%s&api_key=%s" % (
+                        media_id,
+                        selected["Id"],
+                        self.get_auth_token()
+                    )
+            else:
+                mimetype = "video/" + selected["Container"]
+                url = self.get_server_url() + "/Videos/%s/stream?static=true&MediaSourceId=%s&api_key=%s" % (
+                        media_id,
+                        selected["Id"],
+                        self.get_auth_token()
+                    )
+        elif selected["SupportsTranscoding"]:
+            url = self.get_server_url() + selected.get("TranscodingUrl")
+            container = selected["TranscodingContainer"] if "TranscodingContainer" in selected else selected["Container"]
+            if media_content_type in ("Audio", "track"):
+                mimetype = "audio/" + container
+            else:
+                mimetype = "video/" + container
+       
+        _LOGGER.debug("stream url: %s", url)
+        return (url, mimetype)
 
     @property
     def api(self):
