@@ -113,8 +113,8 @@ class JellyfinSource(MediaSource):
             return None
 
         media_content_type, media_content_id = self.parse_mediasource_identifier(item.identifier)
-
-        return PlayMedia(self.jelly_cm.get_stream_url(media_content_id, media_content_type))
+        t = await self.jelly_cm.get_stream_url(media_content_id, media_content_type)
+        return PlayMedia(t[0], t[1])
 
     async def async_browse_media(
         self, item: MediaSourceItem, media_types: Tuple[str] = MEDIA_MIME_TYPES
