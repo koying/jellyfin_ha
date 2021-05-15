@@ -714,6 +714,7 @@ class JellyfinClientManager(object):
 
             for item in self._yamc["Items"]:
                 item["stream_url"] = (await self.get_stream_url(item["Id"], item["Type"]))[0]
+                item["info"] = (await self.get_stream_url(item["Id"], item["Type"]))[2]
             
             _LOGGER.debug("update yamc query: %s", str(query))
             _LOGGER.debug("         response: %s", str(self._yamc))
@@ -926,6 +927,7 @@ class JellyfinClientManager(object):
                     "genres": ",".join(item["Genres"]),
                     "progress": progress,
                     "rating": rating,
+                    "info": item["info"],
                     "stream_url": item["stream_url"] if "stream_url" in item else None,
                     'info_url': f"https://trakt.tv/search/imdb/{provid}?id_type=movie" if provid else "",
                 })
@@ -974,6 +976,7 @@ class JellyfinClientManager(object):
                     "genres": ",".join(item["Genres"]),
                     "progress": progress,
                     "rating": rating,
+                    "info": item["info"],
                     "stream_url": item["stream_url"] if "stream_url" in item else None,
                     'info_url': f"https://trakt.tv/search/imdb/{provid}?id_type=episode" if provid else "",
                 })
@@ -1038,7 +1041,8 @@ class JellyfinClientManager(object):
                     "genres": ",".join(item["Genres"]) if "Genres" in item else None,
                     "progress": 0,
                     "rating": rating,
-                    "stream_url": item["stream_url"],
+                    "info": item["info"] if "info" in item else None,
+                    "stream_url": item["stream_url"] if "stream_url" in item else None,
                     'info_url': None,
                 })
 
@@ -1127,7 +1131,7 @@ class JellyfinClientManager(object):
     async def get_play_info(self, media_id, profile):
         return await self.hass.async_add_executor_job(self.jf_client.jellyfin.get_play_info, media_id, profile)
 
-    async def get_stream_url(self, media_id, media_content_type) -> Tuple[Optional[str], Optional[str]]:
+    async def get_stream_url(self, media_id, media_content_type) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         profile = {
             "Name": USER_APP_NAME,
             "MaxStreamingBitrate": 25000 * 1000,
@@ -1207,7 +1211,7 @@ class JellyfinClientManager(object):
         _LOGGER.debug("playbackinfo: %s", str(playback_info))
         if playback_info is None or "MediaSources" not in playback_info:
             _LOGGER.error(f"No playback info for item id {media_id}")
-            return (None, None)
+            return (None, None, None)
 
         selected = None
         weight_selected = 0
@@ -1220,7 +1224,7 @@ class JellyfinClientManager(object):
                 selected = media_source
         
         if selected is None:
-            return (None, None)
+            return (None, None, None)
 
         if selected["SupportsDirectStream"]:
             if media_content_type in ("Audio", "track"):
@@ -1237,6 +1241,7 @@ class JellyfinClientManager(object):
                         selected["Id"],
                         self.get_auth_token()
                     )
+
         elif selected["SupportsTranscoding"]:
             url = self.get_server_url() + selected.get("TranscodingUrl")
             container = selected["TranscodingContainer"] if "TranscodingContainer" in selected else selected["Container"]
@@ -1245,8 +1250,19 @@ class JellyfinClientManager(object):
             else:
                 mimetype = "video/" + container
        
-        _LOGGER.debug("stream url: %s", url)
-        return (url, mimetype)
+        if media_content_type in ("Audio", "track"):
+            for stream in selected["MediaStreams"]:
+                if stream["Type"] == "Audio":
+                    info = f'{stream["Codec"]} {stream["SampleRate"]}Hz'
+                    break
+        else:
+            for stream in selected["MediaStreams"]:
+                if stream["Type"] == "Video":
+                    info = f'{stream["Width"]}x{stream["Height"]} {stream["Codec"]}'
+                    break
+
+        _LOGGER.debug("stream info: %s - url: %s", info, url)
+        return (url, mimetype, info)
 
     @property
     def api(self):
