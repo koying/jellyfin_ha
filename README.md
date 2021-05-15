@@ -4,6 +4,11 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
+### 1.0.3
+
+- Fix cast
+- Info in YAMC
+
 ### 1.0.2
 
 - Do not throttle data update
