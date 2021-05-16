@@ -4,6 +4,10 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
+### 1.0.4
+
+- Fix Playlist folder
+
 ### 1.0.3
 
 - Fix cast
