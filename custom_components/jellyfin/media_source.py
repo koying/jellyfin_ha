@@ -148,6 +148,7 @@ def Type2Mediatype(type):
         "Folder": MEDIA_CLASS_DIRECTORY,
         "CollectionFolder": MEDIA_CLASS_DIRECTORY,
         "Playlist": MEDIA_CLASS_DIRECTORY,
+        "PlaylistsFolder": MEDIA_CLASS_DIRECTORY,
         "MusicArtist": MEDIA_TYPE_ARTIST,
         "MusicAlbum": MEDIA_TYPE_ALBUM,
     }
@@ -164,6 +165,7 @@ def Type2Mediaclass(type):
         "Folder": MEDIA_CLASS_DIRECTORY,
         "CollectionFolder": MEDIA_CLASS_DIRECTORY,
         "Playlist": MEDIA_CLASS_DIRECTORY,
+        "PlaylistsFolder": MEDIA_CLASS_DIRECTORY,
         "MusicArtist": MEDIA_CLASS_ARTIST,
         "MusicAlbum": MEDIA_CLASS_ALBUM,
         "Audio": MEDIA_CLASS_TRACK,
@@ -181,6 +183,7 @@ def IsPlayable(type, canPlayList):
         "Folder": False,
         "CollectionFolder": False,
         "Playlist": canPlayList,
+        "PlaylistsFolder": False,
         "MusicArtist": canPlayList,
         "MusicAlbum": canPlayList,
         "Audio": True,
