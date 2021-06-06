@@ -4,6 +4,11 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
+### 1.0.5
+
+- Fix IoT class
+- Fix media play
+
 ### 1.0.4
 
 - Fix Playlist folder
