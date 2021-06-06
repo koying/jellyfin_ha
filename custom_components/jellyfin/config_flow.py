@@ -33,7 +33,7 @@ class JellyfinFlowHandler(config_entries.ConfigFlow):
     """Config flow for Jellyfin component."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
+    CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_PUSH
 
     @staticmethod
     @callback
