@@ -4,6 +4,10 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
+### 1.0.6
+
+- Fix exception when item is not playable
+
 ### 1.0.5
 
 - Fix IoT class
