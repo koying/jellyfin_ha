@@ -713,8 +713,9 @@ class JellyfinClientManager(object):
                 return
 
             for item in self._yamc["Items"]:
-                item["stream_url"] = (await self.get_stream_url(item["Id"], item["Type"]))[0]
-                item["info"] = (await self.get_stream_url(item["Id"], item["Type"]))[2]
+                stream_info = await self.get_stream_url(item["Id"], item["Type"])
+                item["stream_url"] = stream_info[0]
+                item["info"] = stream_info[2]
             
             _LOGGER.debug("update yamc query: %s", str(query))
             _LOGGER.debug("         response: %s", str(self._yamc))
