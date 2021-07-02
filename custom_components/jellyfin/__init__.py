@@ -643,6 +643,9 @@ class JellyfinClientManager(object):
                     self.jf_client.stop()
                     time.sleep(timeout)
                     if self.login():
+                        self.jf_client.callback = event
+                        self.jf_client.callback_ws = event
+                        self.jf_client.start(True)
                         break
             elif event_name in ("LibraryChanged", "UserDataChanged"):
                 for sensor in self.hass.data[DOMAIN][self.host]["sensor"]["entities"]:
@@ -1227,6 +1230,9 @@ class JellyfinClientManager(object):
         if selected is None:
             return (None, None, None)
 
+        url = ""
+        mimetype = "none/none"
+        info = "Not playable"
         if selected["SupportsDirectStream"]:
             if media_content_type in ("Audio", "track"):
                 mimetype = "audio/" + selected["Container"]
