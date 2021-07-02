@@ -210,7 +210,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
         media_content_id = None
     else:
         media_content_type, media_content_id = JellyfinSource.parse_mediasource_identifier(media_content_id_in)
-    _LOGGER.debug(f'>> {media_content_type} / {media_content_id}')
+    _LOGGER.debug(f'-- async_library_items: {media_content_type} / {media_content_id}')
 
     if media_content_type in [None, "library"]:
         library_info = BrowseMediaSource(
@@ -257,6 +257,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
             thumbnail=jelly_cm.get_artwork_url(media_content_id),
             children=[],
         )
+    _LOGGER.debug(f'-- async_library_items: 1')
 
     items = await jelly_cm.get_items(query)
     for item in items:
@@ -295,5 +296,6 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
             library_info.can_play=IsPlayable(item["Type"], canPlayList),
             break
 
+    _LOGGER.debug(f'<< async_library_items')
     return library_info
 
