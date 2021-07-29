@@ -165,7 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry):
         hass.data[DOMAIN][config.get(CONF_URL)]["manager"] = _jelly
     except:
         _LOGGER.error("Cannot connect to Jellyfin server.")
-        raise
+        raise ConfigEntryNotReady
 
     async def async_service_handler(service):
         """Map services to methods"""
@@ -615,7 +615,10 @@ class JellyfinClientManager(object):
         self.server_url = "".join(filter(bool, (protocol, host, port, path)))
 
         self.jf_client = self.client_factory(self.config_entry)
-        self.jf_client.auth.connect_to_address(self.server_url)
+        status = self.jf_client.auth.connect_to_address(self.server_url)
+        if (status["State"] == 0): # Unavailable 
+            return False
+
         result = self.jf_client.auth.login(self.server_url, self.config_entry[CONF_USERNAME], self.config_entry[CONF_PASSWORD])
         if "AccessToken" not in result:
             return False

@@ -82,9 +82,9 @@ class UnknownMediaType(BrowseError):
     """Unknown media type."""
 
 async def async_get_media_source(hass: HomeAssistant):
-    """Set up Netatmo media source."""
+    """Set up Jellyfin media source."""
     entry = hass.config_entries.async_entries(DOMAIN)[0]
-    jelly_cm: JellyfinClientManager = hass.data[DOMAIN][entry.data[CONF_URL]]["manager"]
+    jelly_cm: JellyfinClientManager = hass.data[DOMAIN][entry.data[CONF_URL]]["manager"] if "manager" in hass.data[DOMAIN][entry.data[CONF_URL]] else None
     return JellyfinSource(hass, jelly_cm)
 
 class JellyfinSource(MediaSource):
