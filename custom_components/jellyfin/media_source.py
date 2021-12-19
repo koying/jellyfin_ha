@@ -96,8 +96,10 @@ class JellyfinSource(MediaSource):
         text = identifier
         if identifier.startswith(prefix):
             text = identifier[len(prefix):]
+        if IDENTIFIER_SPLIT in text:
+            return text.split(IDENTIFIER_SPLIT, 2)
 
-        return text.split(IDENTIFIER_SPLIT, 2)
+        return "", text
 
     def __init__(self, hass: HomeAssistant, manager: JellyfinClientManager):
         """Initialize Netatmo source."""

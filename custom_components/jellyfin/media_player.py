@@ -338,7 +338,7 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
         _, real_media_id = JellyfinSource.parse_mediasource_identifier(media_id)
         await self.device.play_media(real_media_id)
 
-    async def async_browse_item(self, media_id):
+    async def async_browse_item(self, id):
         _LOGGER.debug(f"async_browse_item triggered {id}")
-        _, real_media_id = JellyfinSource.parse_mediasource_identifier(media_id)
+        _, real_media_id = JellyfinSource.parse_mediasource_identifier(id)
         await self.device.browse_item(real_media_id)
