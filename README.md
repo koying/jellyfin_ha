@@ -4,6 +4,10 @@ Jellyfin integration for Home Assistant
 
 ## Changelog
 
+### 1.0.8
+
+- Fix browse service (#21)
+
 ### 1.0.7
 
 - Fix error handling
