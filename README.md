@@ -2,6 +2,15 @@
 
 Jellyfin integration for Home Assistant
 
+## Installation:
+
+- Install the Jellyfin integration through HACS or below
+  ![](https://my.home-assistant.io/badges/config_flow_start.svg)
+- Configure your Jellyfin server
+- After a restart, you will have media_player and sensor entities.
+
+---
+
 ## Features
 
 ### Entities
@@ -34,6 +43,8 @@ Jellyfin integration for Home Assistant
   entity: sensor.jellyfin_media_server
   title: Latest Media
 ```
+
+More configuration options can be found in the [upcoming-media-card](https://github.com/custom-cards/upcoming-media-card#options) repo.
 
 ---
 
