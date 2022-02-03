@@ -1,5 +1,10 @@
 ## Changelog
 
+### 1.0.9
+
+- Adjust for 2022.02
+- Ignore folders
+
 ### 1.0.8
 
 - Fix browse service (#21)
