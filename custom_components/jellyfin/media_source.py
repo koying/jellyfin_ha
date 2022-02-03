@@ -124,8 +124,8 @@ class JellyfinSource(MediaSource):
         """Browse media."""
         autolog("<<<")
 
-        media_contant_type, media_content_id = async_parse_identifier(item)
-        return await async_library_items(self.jelly_cm, media_contant_type, media_content_id, canPlayList=False)
+        media_content_type, media_content_id = async_parse_identifier(item)
+        return await async_library_items(self.jelly_cm, media_content_type, media_content_id, canPlayList=False)
 
 @callback
 def async_parse_identifier(
@@ -146,6 +146,24 @@ def Type2Mediatype(type):
         "Episode": MEDIA_TYPE_EPISODE,
         "Music": MEDIA_TYPE_ALBUM,
         "Audio": MEDIA_TYPE_TRACK,
+        "BoxSet": MEDIA_CLASS_DIRECTORY,
+        "Folder": MEDIA_CLASS_DIRECTORY,
+        "CollectionFolder": MEDIA_CLASS_DIRECTORY,
+        "Playlist": MEDIA_CLASS_DIRECTORY,
+        "PlaylistsFolder": MEDIA_CLASS_DIRECTORY,
+        "MusicArtist": MEDIA_TYPE_ARTIST,
+        "MusicAlbum": MEDIA_TYPE_ALBUM,
+    }
+    return switcher[type]
+
+def Type2Mimetype(type):
+    switcher = {
+        "Movie": "video/unknown",
+        "Series": MEDIA_TYPE_TVSHOW,
+        "Season": MEDIA_TYPE_SEASON,
+        "Episode": "video/unknown",
+        "Music": MEDIA_TYPE_ALBUM,
+        "Audio": "audio/unknown",
         "BoxSet": MEDIA_CLASS_DIRECTORY,
         "Folder": MEDIA_CLASS_DIRECTORY,
         "CollectionFolder": MEDIA_CLASS_DIRECTORY,
@@ -202,7 +220,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
 
     Used by async_browse_media.
     """
-    _LOGGER.debug(f'>> async_library_items: {media_content_id_in}')
+    _LOGGER.debug(f'>> async_library_items: {media_content_id_in} / {canPlayList}')
 
     library_info = None
     query = None
@@ -229,7 +247,8 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
         query = {
             "ParentId": media_content_id,
             "sortBy": "SortName",
-            "sortOrder": "Ascending"
+            "sortOrder": "Ascending",
+            "filters": "IsNotFolder"
         }
 
         parent_item = await jelly_cm.get_item(media_content_id)
@@ -265,11 +284,12 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
     for item in items:
         if media_content_type in [None, "library", MEDIA_CLASS_DIRECTORY, MEDIA_TYPE_ARTIST, MEDIA_TYPE_ALBUM, MEDIA_TYPE_PLAYLIST, MEDIA_TYPE_TVSHOW, MEDIA_TYPE_SEASON]:
             if item["IsFolder"]:
+                library_info.children_media_class = MEDIA_CLASS_DIRECTORY
                 library_info.children.append(BrowseMediaSource(
                     domain=DOMAIN,
                     identifier=f'{Type2Mediatype(item["Type"])}{IDENTIFIER_SPLIT}{item["Id"]}',
                     media_class=Type2Mediaclass(item["Type"]),
-                    media_content_type=Type2Mediatype(item["Type"]),
+                    media_content_type=Type2Mimetype(item["Type"]),
                     title=item["Name"],
                     can_play=IsPlayable(item["Type"], canPlayList),
                     can_expand=True,
@@ -277,11 +297,12 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
                     thumbnail=jelly_cm.get_artwork_url(item["Id"])
                 ))
             else:
+                library_info.children_media_class = Type2Mediaclass(item["Type"])
                 library_info.children.append(BrowseMediaSource(
                     domain=DOMAIN,
                     identifier=f'{Type2Mediatype(item["Type"])}{IDENTIFIER_SPLIT}{item["Id"]}',
                     media_class=Type2Mediaclass(item["Type"]),
-                    media_content_type=Type2Mediatype(item["Type"]),
+                    media_content_type=Type2Mimetype(item["Type"]),
                     title=item["Name"],
                     can_play=IsPlayable(item["Type"], canPlayList),
                     can_expand=False,
@@ -292,12 +313,12 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
             library_info.domain=DOMAIN
             library_info.identifier=f'{Type2Mediatype(item["Type"])}{IDENTIFIER_SPLIT}{item["Id"]}',
             library_info.title = item["Name"]
-            library_info.media_content_type = Type2Mediatype(item["Type"])
+            library_info.media_content_type = Type2Mimetype(item["Type"])
             library_info.media_class = Type2Mediaclass(item["Type"])
             library_info.can_expand = False
             library_info.can_play=IsPlayable(item["Type"], canPlayList),
             break
 
-    _LOGGER.debug(f'<< async_library_items')
+    _LOGGER.debug(f'<< async_library_items {library_info.as_dict()}')
     return library_info
 
