@@ -1,5 +1,9 @@
 ## Changelog
 
+### 1.0.10
+
+- Revert ignore folders
+
 ### 1.0.9
 
 - Adjust for 2022.02
