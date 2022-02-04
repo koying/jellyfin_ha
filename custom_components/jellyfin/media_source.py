@@ -247,8 +247,7 @@ async def async_library_items(jelly_cm: JellyfinClientManager,
         query = {
             "ParentId": media_content_id,
             "sortBy": "SortName",
-            "sortOrder": "Ascending",
-            "filters": "IsNotFolder"
+            "sortOrder": "Ascending"
         }
 
         parent_item = await jelly_cm.get_item(media_content_id)
