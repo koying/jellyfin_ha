@@ -158,12 +158,12 @@ def Type2Mediatype(type):
 
 def Type2Mimetype(type):
     switcher = {
-        "Movie": "video/unknown",
+        "Movie": "video/mp4",
         "Series": MEDIA_TYPE_TVSHOW,
         "Season": MEDIA_TYPE_SEASON,
-        "Episode": "video/unknown",
+        "Episode": "video/mp4",
         "Music": MEDIA_TYPE_ALBUM,
-        "Audio": "audio/unknown",
+        "Audio": "audio/mp3",
         "BoxSet": MEDIA_CLASS_DIRECTORY,
         "Folder": MEDIA_CLASS_DIRECTORY,
         "CollectionFolder": MEDIA_CLASS_DIRECTORY,
