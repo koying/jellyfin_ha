@@ -125,6 +125,8 @@ class JellyfinMediaPlayer(MediaPlayerEntity):
         self.media_status_last_position = None
         self.media_status_received = None
 
+        self._attr_entity_registry_enabled_default = False
+
     async def async_added_to_hass(self):
         self.hass.data[DOMAIN][self.jelly_cm.host][PLATFORM]["entities"].append(self)
         self.jelly_cm.add_update_callback(self.async_update_callback, self.device_id)
