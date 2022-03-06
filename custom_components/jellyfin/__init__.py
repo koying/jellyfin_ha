@@ -233,7 +233,7 @@ class JellyfinDevice(object):
     """ Represents properties of an Jellyfin Device. """
 
     def __init__(self, session, jf_manager):
-        """Initialize Emby device object."""
+        """Initialize Jellyfin device object."""
         self.jf_manager = jf_manager
         self.is_active = True
         self.update_session(session)
@@ -1158,7 +1158,7 @@ class JellyfinClientManager(object):
                     "Protocol": "http",
                     "AudioCodec": "aac,mp3,opus,flac,vorbis",
                     "VideoCodec": "h264,mpeg4,mpeg2video",
-                    "MaxAudioChannels": "2",
+                    "MaxAudioChannels": "6",
                 },
                 {"Container": "jpeg", "Type": "Photo"},
             ],
@@ -1178,7 +1178,7 @@ class JellyfinClientManager(object):
                     "Container": "mp4,m4v",
                     "AudioCodec": "aac,mp3,opus,flac,vorbis",
                     "VideoCodec": "h264,mpeg4,mpeg2video",
-                    "MaxAudioChannels": "2",
+                    "MaxAudioChannels": "6",
                 },
             ],
             "ResponseProfiles": [],
