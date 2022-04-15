@@ -61,7 +61,7 @@ class JellyfinFlowHandler(config_entries.ConfigFlow):
         data_schema = {
             vol.Required(CONF_URL): str,
             vol.Required(CONF_USERNAME): str,
-            vol.Required(CONF_PASSWORD): str,
+            vol.Optional(CONF_PASSWORD, default=""): str,
             vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
             vol.Optional(CONF_GENERATE_UPCOMING, default=False): bool,
             vol.Optional(CONF_GENERATE_YAMC, default=False): bool,
