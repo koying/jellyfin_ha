@@ -65,6 +65,7 @@ class JellyfinSensor(Entity):
             "manufacturer": "Jellyfin",
             "model": f"Jellyfin {self.jelly_cm.info['Version']}".rstrip(),
             "name": self.jelly_cm.info['ServerName'],
+            "configuration_url": self.jelly_cm.server_url,
         }
 
     @property
