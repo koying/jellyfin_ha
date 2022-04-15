@@ -30,6 +30,8 @@ from homeassistant.const import (  # pylint: disable=import-error
     EVENT_HOMEASSISTANT_STOP,
 )
 import homeassistant.helpers.config_validation as cv  # pylint: disable=import-error
+from homeassistant.helpers.device_registry import DeviceEntry
+from homeassistant.helpers import entity_registry
 
 from homeassistant.helpers.dispatcher import (  # pylint: disable=import-error
     async_dispatcher_send,
@@ -228,6 +230,14 @@ async def _update_listener(hass: HomeAssistant, config_entry):
     _LOGGER.debug("reload triggered")
     await hass.config_entries.async_reload(config_entry.entry_id)
 
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Remove a config entry from a device."""
+    entreg = await entity_registry.async_get_registry(hass)
+    if entity_registry.async_entries_for_device(entreg, device_entry.id):
+        return False
+    return True
 
 class JellyfinDevice(object):
     """ Represents properties of an Jellyfin Device. """
