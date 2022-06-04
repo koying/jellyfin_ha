@@ -234,7 +234,7 @@ async def async_remove_config_entry_device(
     hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
 ) -> bool:
     """Remove a config entry from a device."""
-    entreg = await entity_registry.async_get_registry(hass)
+    entreg = entity_registry.async_get(hass)
     if entity_registry.async_entries_for_device(entreg, device_entry.id):
         return False
     return True
