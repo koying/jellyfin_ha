@@ -1,5 +1,18 @@
 ## Changelog
 
+### 1.1.1
+
+- Fix `async_get_registry` warning
+
+# 1.1.0
+
+- Allow empty passwords
+- Allow device deletion
+- Add link to device
+- Disable player by default
+- Fix max channels
+- Return appropriate mime-types
+
 ### 1.0.10
 
 - Revert ignore folders
