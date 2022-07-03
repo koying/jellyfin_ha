@@ -1,0 +1,53 @@
+{
+    "config": {
+        "abort": {
+            "already_configured": "Serwis już skonfigurowany",
+            "conn_error": "Błąd połączenia."
+        },
+        "error": {
+            "cannot_connect": "Błąd połączenia",
+            "unknown": "Nieznany błąd"
+        },
+        "flow_title": "Konfiguracja Jellyfin",
+        "step": {
+            "user": {
+                "data": {
+                    "url": "Adres URL",
+                    "username": "Użytkownik",
+                    "password": "Hasło",
+                    "verify_ssl": "Weryfikuj adres SSL",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
+                },
+                "description": "Konfiguracja szczegółów polączenia.",
+                "title": "Jellyfin"
+            }
+        }
+    },
+    "options": {
+        "abort": {
+            "already_configured": "Serwis już skonfigurowany",
+            "conn_error": "Błąd połączenia."
+        },
+        "error": {
+            "cannot_connect": "Błąd połączenia",
+            "unknown": "Nieznany błąd"
+        },
+        "flow_title": "Konfiguracja Jellyfin",
+        "step": {
+            "user": {
+                "data": {
+                    "url": "Adres URL",
+                    "username": "Użytkownik",
+                    "password": "Hasło",
+                    "verify_ssl": "Weryfikuj adres SSL",
+                    "generate_upcoming": "Generate Upcoming card data",
+                    "generate_yamc": "Generate YAMC card data"
+                },
+                "description": "Konfiguracja szczegółów polączenia.",
+                "title": "Jellyfin"
+            }
+        }
+    },
+    "title": "Jellyfin"
+}
