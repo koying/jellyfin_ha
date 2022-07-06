@@ -1,5 +1,9 @@
 ## Changelog
 
+### 1.1.2
+
+- Handle `ManualPlaylistsFolder` type
+
 ### 1.1.1
 
 - Fix `async_get_registry` warning
